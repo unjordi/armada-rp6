@@ -8,10 +8,12 @@
 // HOW IT WORKS (discovered live via CEF DevTools on the RP6, 2026-09-20 —
 // steamui build Chrome/126, see docs/camino2-hojita.md):
 //   * The top-bar row is rendered by a React.memo component we locate with
-//     findModuleExport, filtering on THREE stable strings its inner render
-//     references — "quickAccessHeader", "ControllerConfigurator", "VoiceChat"
-//     — not on a minified export name (those change every steamui build).
-//     Live, that resolved uniquely to module 62678 export "hB".
+//     findModuleExport, filtering on the stable strings its inner render
+//     references — "ControllerConfigurator" AND "VoiceChat" — not on a minified
+//     export name (those change every steamui build). Live (Chrome/126,
+//     2026-09-20) that resolved uniquely to ONE memo export. (An earlier build
+//     also had "quickAccessHeader" in this memo, but it moved to the QuickAccess
+//     module, so requiring it matched nothing — see findTopBarComponent.)
 //   * That component returns (paraphrased):
 //       <Provider><Row>{...icons..., <Battery/>, <ClockWrapper><Clock/></…>, …}</Row></Provider>
 //     The Clock is the only element whose component source references BOTH
@@ -163,8 +165,19 @@ function insertBeforeClock(node: any, glyph: any): boolean {
   return false;
 }
 
-// Locate the top-bar row memo by three stable strings its inner render
-// references. Returns the memo object (or a plain function, defensively).
+// Locate the top-bar row memo by stable strings its inner render references
+// (not by minified export name, which changes every steamui build). Returns
+// the memo object (or a plain function, defensively).
+//
+// Filter = "ControllerConfigurator" AND "VoiceChat": on the live RP6 build
+// (steamui Chrome/126, 2026-09-20) those two co-locate in EXACTLY ONE memo
+// export (the top-bar row) — verified via CDP: `findAllModules` finds a single
+// memo whose source has both. We deliberately do NOT also require
+// "quickAccessHeader": in this build that string is NO LONGER in the row memo
+// (it moved to the QuickAccess module `DT`), so the old 3-string AND matched
+// NOTHING and the glyph never installed. The 2-string filter is the current
+// unique signature; if a future steamui refactor breaks it, install() logs
+// once and renders nothing (never a broken bar — see the fallback below).
 function findTopBarComponent(): any {
   return findModuleExport((e: any) => {
     try {
@@ -176,11 +189,7 @@ function findTopBarComponent(): any {
             : null;
       if (!fn) return false;
       const s = Function.prototype.toString.call(fn);
-      return (
-        s.indexOf("quickAccessHeader") >= 0 &&
-        s.indexOf("ControllerConfigurator") >= 0 &&
-        s.indexOf("VoiceChat") >= 0
-      );
+      return s.indexOf("ControllerConfigurator") >= 0 && s.indexOf("VoiceChat") >= 0;
     } catch {
       return false;
     }
@@ -199,43 +208,82 @@ function warnOnce(...args: any[]) {
 }
 
 // Wire this from index.tsx's definePlugin(): call on mount, keep the returned
-// disposer for onDismount. Returns null (and logs once) if the target can't be
-// found — the plugin keeps working, just without the top-bar glyph.
-export function installTopBarProfileIndicator(): (() => void) | null {
-  let target: any;
-  try {
-    target = findTopBarComponent();
-  } catch (e) {
-    warnOnce("findModuleExport threw:", e);
-    return null;
-  }
-  const isMemo = target && typeof target === "object" && typeof target.type === "function";
-  if (!isMemo) {
-    // On current steamui builds the top-bar row is a React.memo (we patch its
-    // .type). If a future build exports it as a plain function, patching by
-    // reference here wouldn't intercept Steam's own binding — bail cleanly
-    // rather than pretend it's installed.
-    warnOnce("top-bar module not found or not a memo; glyph not installed (steamui refactor?)");
-    return null;
-  }
-  try {
-    const patch = afterPatch(target, "type", (_args: any[], ret: any) => {
-      try {
-        insertBeforeClock(ret, <ProfileGlyphSlot key="armada-profile-glyph" />);
-      } catch (e) {
-        warnOnce("insertion failed; leaving top bar untouched:", e);
+// disposer for onDismount. Returns a disposer (never null) — even if the
+// module isn't ready yet.
+//
+// RETRY (the QG-8/#25 mount fix): the top-bar row memo is LAZILY instantiated
+// — at plugin-load time (early in the session) `findModuleExport` returns
+// nothing because the module isn't in webpack's cache yet, so a one-shot
+// install silently never patches (verified on device: module found later but
+// `__deckyPatch` false). So we poll until the module resolves, then afterPatch
+// once. Once patched, the shared memo carries the glyph into every subsequent
+// mount of the bar (a navigation / QAM open / fresh boot). If it never resolves
+// (a steamui refactor), we log once and render nothing — never a broken bar.
+export function installTopBarProfileIndicator(): () => void {
+  let patch: { unpatch: () => void } | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let attempts = 0;
+  const MAX_ATTEMPTS = 60; // ~30s at 500ms — covers a slow lazy-load / cold boot
+
+  // Returns true when we should STOP trying (patched, or a hard failure);
+  // false means "not ready, keep polling".
+  const tryInstall = (): boolean => {
+    let target: any;
+    try {
+      target = findTopBarComponent();
+    } catch (e) {
+      warnOnce("findModuleExport threw:", e);
+      return true;
+    }
+    if (!target) return false; // module not instantiated yet — keep polling
+    const isMemo = target && typeof target === "object" && typeof target.type === "function";
+    if (!isMemo) {
+      // Current steamui builds export the row as a React.memo (we patch its
+      // .type). A plain-function export would need a different hook; bail
+      // cleanly rather than pretend it's installed.
+      warnOnce("top-bar module found but not a memo; glyph not installed (steamui refactor?)");
+      return true;
+    }
+    try {
+      patch = afterPatch(target, "type", (_args: any[], ret: any) => {
+        try {
+          insertBeforeClock(ret, <ProfileGlyphSlot key="armada-profile-glyph" />);
+        } catch (e) {
+          warnOnce("insertion failed; leaving top bar untouched:", e);
+        }
+        return ret;
+      });
+    } catch (e) {
+      warnOnce("afterPatch failed:", e);
+    }
+    return true;
+  };
+
+  if (!tryInstall()) {
+    timer = setInterval(() => {
+      attempts++;
+      if (tryInstall() || attempts >= MAX_ATTEMPTS) {
+        if (timer) clearInterval(timer);
+        timer = null;
+        if (attempts >= MAX_ATTEMPTS && !patch) {
+          warnOnce("top-bar module not found after retries; glyph not installed");
+        }
       }
-      return ret;
-    });
-    return () => {
+    }, 500);
+  }
+
+  return () => {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+    if (patch) {
       try {
         patch.unpatch();
       } catch {
         /* ignore */
       }
-    };
-  } catch (e) {
-    warnOnce("afterPatch failed:", e);
-    return null;
-  }
+      patch = null;
+    }
+  };
 }
