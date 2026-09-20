@@ -1,8 +1,8 @@
-import { definePlugin, routerHook } from "@decky/api";
+import { definePlugin } from "@decky/api";
 import { getCompatApplied, getConfig, getInstalledGames, saveCompatApplied } from "./backend";
 import { ActiveProfileBadge } from "./components/ActiveProfileBadge";
-import { TopBarProfileIndicator } from "./components/TopBarProfileIndicator";
 import { Content } from "./Content";
+import { installTopBarProfileIndicator } from "./lib/topBarProfileIndicator";
 import {
   configureCompatPolicy,
   defaultWindowsCompatTool,
@@ -19,12 +19,12 @@ export default definePlugin(() => {
   const persistHandledGames = () => {
     saveCompatApplied(handledGameAppids()).catch(() => {});
   };
-  // armada#25 (Camino 1 — overlay): mount the live power-profile glyph in the
-  // system top bar (left of the battery %). addGlobalComponent is the only
-  // sanctioned global mount point; the component self-positions with
-  // position:fixed + useUIComposition(Notification) (decky-brightness-bar
-  // pattern). Removed in onDismount below.
-  routerHook.addGlobalComponent("ArmadaTopBarProfileIndicator", TopBarProfileIndicator);
+  // armada#25 (Camino 2 — INLINE, replaces the old position:fixed overlay):
+  // patch Steam's own top-bar row so the live power-profile glyph flows as a
+  // real sibling between the battery and the clock. Immune to clock/battery
+  // width changes (1↔2-digit hour, charging icon, % width). See
+  // lib/topBarProfileIndicator.tsx. Disposed in onDismount below.
+  const removeTopBarGlyph = installTopBarProfileIndicator();
   let cancelled = false;
   const handledRequest = getCompatApplied()
     .then((state) => ({ state, loaded: true }))
@@ -84,7 +84,7 @@ export default definePlugin(() => {
     onDismount() {
       cancelled = true;
       unregisterDownloadWatcher();
-      routerHook.removeGlobalComponent("ArmadaTopBarProfileIndicator");
+      removeTopBarGlyph?.();
     },
     icon: (
       <svg
