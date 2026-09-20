@@ -11,10 +11,12 @@
 # trigger does NOT paint an initial frame -- if the charger was already attached
 # before sleep there is no edge, so without the seed the LEDs would sleep showing
 # the user's last color, not the charge status (QG-8 causa a). On resume it
-# disarms the trigger, clears keep_alive, and starts the daemon back up (or, if
-# it never stopped one, nudges a repaint via `armada-rgb apply`). It is a no-op
-# for a non-suspend sleep type or when the opt-in is off, and never fails/blocks
-# suspend even if nodes are missing or armada-rgb errors.
+# disarms the trigger, clears keep_alive, and ENSURES the daemon is running again
+# -- idempotent and INDEPENDENT of the marker: if the service is down it STARTS
+# it (self-healing even if the stop-marker was lost), if it's still up it nudges
+# a repaint via `armada-rgb apply` (audit M2). It is a no-op for a non-suspend
+# sleep type or when the opt-in is off, and never fails/blocks suspend even if
+# nodes are missing or armada-rgb errors.
 #
 # This is the DESIGN-A contract. There is deliberately NO `armada-rgb
 # charge-indicator` CLI (that dead design-B path was removed): the suspend
@@ -185,9 +187,10 @@ run_hook pre suspend
 check "pre+missing-config: default off, nothing armed" "$(triggers)" "none"
 set_indicator 1
 
-# 9) resume with a marker (we stopped the daemon) -> disarms UNCONDITIONALLY and
-#    STARTS the daemon back up (not `apply`).
-reset_nodes; : >"$marker"
+# 9) resume after WE stopped the daemon (marker present, service down as `pre`
+#    left it) -> disarms UNCONDITIONALLY and STARTS the daemon back up (not
+#    `apply`).
+reset_nodes; : >"$marker"; service_inactive
 for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
 for f in "$tmp"/htr3212/*/keep_alive; do printf '1\n' >"$f"; done
 run_hook post suspend
@@ -197,17 +200,29 @@ grep_ok "post: daemon STARTED back up"           "$sc_log" "^start armada-rgb\.s
 check "post: marker cleared"                     "$([[ -e "$marker" ]] && echo yes || echo no)" "no"
 check "post: did NOT use apply (started service instead)" "$(cat "$rgb_calls")" ""
 
-# 10) resume with NO marker (daemon was never ours to stop) -> disarms + nudges
-#     a repaint via `armada-rgb apply`.
-reset_nodes
+# 9b) M2 regression: `pre` stopped the daemon but the marker write FAILED (tmpfs
+#     full / race), so `post` sees NO marker AND a down service. It must START
+#     the daemon anyway (is-active||start, marker-independent) -- otherwise RGB +
+#     screen_sync stay dead until reboot.
+reset_nodes; rm -f "$marker"; service_inactive
 for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
 run_hook post suspend
-check "post+no-marker: trigger disarmed"         "$(triggers)" "none"
-check "post+no-marker: repaints user lighting via apply" "$(cat "$rgb_calls")" "apply"
-grep_absent "post+no-marker: no start issued"    "$sc_log" "^start "
+check "post+no-marker+down: trigger disarmed"    "$(triggers)" "none"
+grep_ok "post+no-marker+down: daemon STARTED anyway (M2 self-heal)" "$sc_log" "^start armada-rgb\.service$"
+check "post+no-marker+down: did NOT fall back to apply" "$(cat "$rgb_calls")" ""
 
-# 11) post is unconditional even with opt-in OFF (restore lighting either way).
-reset_nodes; set_indicator 0
+# 10) resume with NO marker AND the daemon still running (never ours to stop) ->
+#     disarms + nudges a repaint via `armada-rgb apply`, no restart.
+reset_nodes; service_active
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+run_hook post suspend
+check "post+no-marker+up: trigger disarmed"      "$(triggers)" "none"
+check "post+no-marker+up: repaints user lighting via apply" "$(cat "$rgb_calls")" "apply"
+grep_absent "post+no-marker+up: no start issued (already active)" "$sc_log" "^start "
+
+# 11) post is unconditional even with opt-in OFF (restore lighting either way):
+#     daemon still up -> nudge a repaint.
+reset_nodes; set_indicator 0; service_active
 for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
 run_hook post suspend
 check "post+off: still disarmed unconditionally" "$(triggers)" "none"

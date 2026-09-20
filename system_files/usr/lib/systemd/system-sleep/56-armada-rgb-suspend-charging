@@ -1,35 +1,49 @@
 #!/bin/bash
-# Show charge status on the stick RGB LEDs while the device sleeps, autonomously
-# and through deep suspend -- INCLUDING when the charger was ALREADY plugged in
-# before it went to sleep (Jordi's real use: "I leave it charging overnight").
+# Show charge status on the stick RGB LEDs while the device sleeps.
 # Opt-in, default OFF (Armada Control -> RGB Lighting -> "Show charge status
 # while sleeping").
 #
+# WHAT IT ACTUALLY COVERS (read before trusting the LEDs mid-sleep):
+#   * "I put it to sleep while it was ALREADY charging" -> YES. `pre` SEEDS the
+#     current charge color (amber charging / green full) onto the LEDs and the
+#     HTR3212 controllers hold that pattern in hardware through the sleep
+#     (keep_alive, no CPU). This is the case Jordi asked for ("I leave it
+#     charging overnight").
+#   * "It gets plugged in WHILE ASLEEP", or "charging -> full WHILE ASLEEP":
+#       - in s2idle: REFLECTED. The AP still services interrupts, so the kernel
+#         trigger repaints on the power_supply_changed() edge.
+#       - in DEEP suspend: NOT reflected until the next wake. The AP is powered
+#         down (PSCI) and 45-armada-wake-policy deliberately DISABLES the
+#         charger/battery wakeup (so the device doesn't wake in a bag), so
+#         power_supply_changed() never runs mid-sleep and the armed trigger has
+#         no edge to fire on -- only the pre-sleep SEED is shown. Reflecting a
+#         mid-deep plug-in would require re-arming the charger wakeup that 45
+#         removes on purpose = a kernel follow-up (armada QG-8 causa-b), not
+#         this hook.
+#
 # Mechanism (suspend `pre`, when opted in):
-#   1. STOP the armada-rgb daemon. The daemon's paint loop reclaims these LEDs
-#      from any kernel trigger on every render tick (backend.rs reclaim_led) --
-#      so if we only armed the trigger and left the daemon running, its next
-#      tick before userspace freezes would DISARM our hand-off and the charge
-#      status would never survive into sleep (armada QG-8). We take the daemon
-#      out of the way first, then own the LEDs ourselves. The resume hook starts
-#      it back up.
+#   1. STOP the armada-rgb daemon. Its paint loop reclaims these LEDs from any
+#      kernel trigger on every render tick (backend.rs reclaim_led) -- so if we
+#      only armed the trigger and left the daemon running, its next tick before
+#      userspace freezes would DISARM our hand-off and the charge status would
+#      never survive into sleep (armada QG-8). We take the daemon out of the way
+#      first, then own the LEDs ourselves. The resume hook starts it back up.
 #   2. keep_alive=1 on the HTR3212 controllers so they are NOT powered down in
 #      suspend (kernel patch armada#26) and keep driving their PWM pattern with
 #      no CPU -- their vdd rail is regulator-always-on.
 #   3. Arm the kernel trigger "<psy>-charging-orange-full-green" on the group
-#      LEDs. From then on the KERNEL repaints them on each power_supply_changed()
-#      -- e.g. a charger plugged in mid-sleep, or a charging->full transition --
-#      straight from the kernel workqueue, no systemd, no userspace.
+#      LEDs. It repaints on each power_supply_changed() -- which fires mid-sleep
+#      only in s2idle, not in deep suspend (see "WHAT IT ACTUALLY COVERS").
 #   4. SEED the CURRENT charge state onto the LEDs right now (amber charging /
 #      green full). Arming a power-supply LED trigger does NOT paint an initial
 #      frame -- it only repaints on the next power_supply_changed() EDGE. If the
 #      charger was already attached before sleep there is no such edge, so
 #      without this seed the LEDs would sleep showing the user's last color,
-#      not the charge status (armada QG-8 causa a). The trigger then maintains
-#      it and handles any later transition.
+#      not the charge status (armada QG-8 causa a). In deep suspend this seed is
+#      the ONLY state shown until the next wake.
 #
-# On resume (`post`): disarm the trigger, clear keep_alive, and start the daemon
-# back up so it repaints the user's own lighting.
+# On resume (`post`): disarm the trigger, clear keep_alive, and bring the daemon
+# back so it repaints the user's own lighting.
 #
 # This never blocks or delays suspend: every step is best-effort and a no-op on
 # a device without these LED nodes / the htr3212 driver (older image, desktop
@@ -95,14 +109,23 @@ stop_daemon() {
     fi
 }
 
-# Restart the daemon only if WE stopped it; otherwise nudge a repaint.
+# Bring the daemon back after resume. IDEMPOTENT and INDEPENDENT of the marker:
+# even if `pre` stopped the daemon but the marker write FAILED (tmpfs full,
+# race, mkdir failed), the daemon must still come back -- otherwise every
+# animated effect, screen_sync included, stays dead until the next reboot
+# (audit M2). The marker is only cleaned up here; whether we start vs nudge is
+# decided by whether the service is actually running, not by the marker.
 start_daemon() {
-    if [[ -e "$daemon_marker" ]]; then
-        rm -f "$daemon_marker" 2>/dev/null || true
-        command -v systemctl >/dev/null 2>&1 && timeout 5 systemctl start "$rgb_service" 2>/dev/null || true
-    else
+    rm -f "$daemon_marker" 2>/dev/null || true
+    command -v systemctl >/dev/null 2>&1 || return 0
+    if systemctl is-active --quiet "$rgb_service" 2>/dev/null; then
+        # Still running (we never stopped it -- e.g. indicator off): just nudge
+        # a repaint of the user's own lighting, don't restart.
         [[ -x "$rgb_tool" ]] && timeout 5 "$rgb_tool" apply >/dev/null 2>&1 || true
+        return 0
     fi
+    # Not running -- start it unconditionally of the marker (self-healing).
+    timeout 5 systemctl start "$rgb_service" 2>/dev/null || true
 }
 
 # Paint the current charge state onto the group LEDs, matching what the kernel
