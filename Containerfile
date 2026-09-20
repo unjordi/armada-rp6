@@ -23,7 +23,12 @@ ARG ARMADA_SPLASH_PKG=ghcr.io/armada-os/armada-packages/armada-splash@sha256:6b0
 # RP6 fork armada-rgb: daemon with `run`, animated effects, screen-sync, and the
 # suspend charge-indicator trigger reclaim. Pinned to OUR published pkg (the
 # upstream RPM predates `run` — that skew was the crash-loop behind the RGB tab).
-ARG ARMADA_RGB_PKG=ghcr.io/unjordi/armada-packages-rp6/armada-rgb@sha256:cf91b23c04d1a5264c7467747845260e248586e2810015f3204e92bc00d59a9e
+# screen_sync captures via `runuser -u <user> --`, not `su -` (C1): a login
+# shell opens a new PAM/logind session per capture and, at the 3s screen_sync
+# cadence, floods logind badly enough to starve out Game Mode (confirmed
+# on-device — this was the actual cause of a reboot-loop). Built from
+# armada-packages-rp6@0ee5a629f.
+ARG ARMADA_RGB_PKG=ghcr.io/unjordi/armada-packages-rp6/armada-rgb@sha256:401103f2e3ef4038cac5f8df1626263bbf45f1262cc3a18c6dbe61b5ddd40d4d
 ARG UMTP_RESPONDER_PKG=ghcr.io/armada-os/armada-packages/umtp-responder@sha256:0e7f962145b72de85c2a3563d947c6357fc3a1a34797b7106cbff1c8832078ea
 ARG CHUNKAH_IMAGE=quay.io/coreos/chunkah@sha256:ff8b8b466a942ec6000445d4001fc661e2fc5a952ad9ee29b4de9ab09d1d1708
 ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:44
