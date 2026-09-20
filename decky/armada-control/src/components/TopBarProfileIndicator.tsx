@@ -57,8 +57,8 @@ const useUIComposition: UseUIComposition = findModuleChild((m) => {
 function LeafGlyph() {
   return (
     <svg
-      width="11"
-      height="11"
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -76,8 +76,8 @@ function LeafGlyph() {
 function BoltGlyph() {
   return (
     <svg
-      width="11"
-      height="11"
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -103,8 +103,8 @@ function profileGlyph(profile: string) {
 // glyph's right edge; nudge it (and `top`) with a live screenshot until it
 // lines up with the battery cluster. Kept as named constants so the QA pass
 // is a one-line change.
-const TOP_OFFSET = "calc(env(safe-area-inset-top, 0px) + 15px)";
-const RIGHT_OFFSET = "148px";
+const TOP_OFFSET = "calc(env(safe-area-inset-top, 0px) + 14px)";
+const RIGHT_OFFSET = "141px";
 
 // Only the child that actually draws requests gamescope composition, so we do
 // NOT hold a Notification composition open when the profile is balanced/unknown
