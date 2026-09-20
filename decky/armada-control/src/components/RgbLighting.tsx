@@ -224,8 +224,8 @@ export function RgbLighting() {
       </PanelSection>
       <PanelSection title="Charging Indicator">
         <ToggleRow
-          label="Show charge status while sleeping"
-          description="Pins a dim amber pattern while charging and asleep (armada#26), independent of the Enabled toggle above -- works even with lighting off."
+          label="Show charging status while asleep"
+          description="While it sleeps and charges, the stick lights glow amber (green once full) so you can tell it's charging at a glance. Works even with lighting turned off."
           value={chargeIndicatorEnabled}
           disabled={chargeIndicatorUpdating}
           onChange={toggleChargeIndicator}

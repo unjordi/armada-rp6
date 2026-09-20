@@ -104,7 +104,7 @@ function profileGlyph(profile: string) {
 // lines up with the battery cluster. Kept as named constants so the QA pass
 // is a one-line change.
 const TOP_OFFSET = "calc(env(safe-area-inset-top, 0px) + 6px)";
-const RIGHT_OFFSET = "132px";
+const RIGHT_OFFSET = "380px";
 
 // Only the child that actually draws requests gamescope composition, so we do
 // NOT hold a Notification composition open when the profile is balanced/unknown
