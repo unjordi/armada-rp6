@@ -1,0 +1,52 @@
+#!/bin/bash
+# Only the power key (and the RTC alarm) may wake the device from a real deep suspend.
+# Background sources otherwise wake it in a pocket or bag: the glink-smem edge (ADSP
+# doorbells), the thermal sensors (body/charging heat trips their IRQ), the charger
+# power-supply (armed wakeup-capable by the battmgr charge-wake patch), the Wi-Fi MHI
+# and the SD card. The wake-ledger (40-armada-wake-ledger) showed these, not the power
+# key, ending most sleeps. Disabling their /sys .../power/wakeup before sleep does NOT
+# stop charging (the PMIC/ADSP firmware charges autonomously without waking the AP) nor
+# the sleep charge LED (the RGB chip holds its pattern in hardware).
+# Gated to deep-suspend devices via device-env, so the s2idle fleet is untouched.
+set -uo pipefail
+
+[[ "${2:-}" == suspend ]] || exit 0
+
+sysfs_root=${ARMADA_SYSFS_ROOT:-/sys}
+state_file=${ARMADA_WAKE_POLICY_STATE:-/run/armada/wake-policy-disabled.list}
+device_env=${ARMADA_DEVICE_ENV:-/usr/libexec/armada/device-env}
+
+eval "$("$device_env" 2>/dev/null)" || exit 0
+[[ "${ARMADA_SUSPEND_MODE:-fake}" == deep ]] || exit 0
+
+# Wake sources that MUST stay armed: the power key and the RTC alarm.
+keep_wake() {
+    case "$1" in
+        *pwrkey*|*pon@1300*|*rtc@*|*alarmtimer*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if [[ "${1:-}" == pre ]]; then
+    mkdir -p "$(dirname "$state_file")" || exit 0
+    : >"$state_file"
+    while IFS= read -r wake; do
+        [[ "$(cat "$wake" 2>/dev/null)" == enabled ]] || continue
+        name=$(basename "$(dirname "$(dirname "$wake")")")
+        keep_wake "$name" && continue
+        if printf 'disabled\n' >"$wake" 2>/dev/null; then
+            printf '%s\n' "$wake" >>"$state_file"
+        fi
+    done < <(find "$sysfs_root/devices" -name wakeup -path '*/power/*' 2>/dev/null)
+    exit 0
+fi
+
+if [[ "${1:-}" == post ]]; then
+    [[ -r "$state_file" ]] || exit 0
+    while IFS= read -r wake; do
+        [[ -n "$wake" && -w "$wake" ]] && printf 'enabled\n' >"$wake" 2>/dev/null
+    done <"$state_file"
+    rm -f -- "$state_file"
+    exit 0
+fi
+exit 0
