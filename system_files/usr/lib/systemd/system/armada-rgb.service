@@ -9,6 +9,22 @@ ExecCondition=/usr/bin/armada-rgb supported
 ExecStart=/usr/bin/armada-rgb run
 Restart=on-failure
 RestartSec=2
+# QG-2 (screen_sync): the daemon runs as root, but the `screen_sync`/ambilight
+# effect captures the framebuffer with `gamescopectl screenshot`, which needs
+# the armada user's Wayland session — as root it fails ("Failed to open
+# GAMESCOPE_WAYLAND_DISPLAY") and the effect silently falls back to the solid
+# base color (looked like "the LEDs just turn yellow"). Tell the daemon to su to
+# the session user for the capture (armada-rgb honors ARMADA_RGB_SCREEN_SYNC_USER;
+# it runs `su - <user> -c "env XDG_RUNTIME_DIR=… WAYLAND_DISPLAY=… gamescopectl …"`).
+# armada (uid 1000) and its runtime dir are ArmadaOS-constant, not per-device.
+Environment=ARMADA_RGB_SCREEN_SYNC_USER=armada
+Environment=ARMADA_RGB_GAMESCOPE_XDG_RUNTIME_DIR=/run/user/1000
+Environment=ARMADA_RGB_GAMESCOPE_WAYLAND_DISPLAY=gamescope-0
+# The su'd capture writes the PNG as `armada`; the daemon (root) reads it back.
+# The default capture dir /run/armada-rgb would otherwise be created root-only →
+# the su'd write denied. RuntimeDirectory makes it world-writable (transient tmpfs).
+RuntimeDirectory=armada-rgb
+RuntimeDirectoryMode=0777
 
 [Install]
 WantedBy=multi-user.target
