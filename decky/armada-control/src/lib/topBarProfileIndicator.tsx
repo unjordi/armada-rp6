@@ -134,16 +134,32 @@ function holdsClock(el: any): boolean {
   return false;
 }
 
+// Our glyph carries a stable key so we can recognize it if it's already in the
+// tree. This is the idempotency marker (audit M3).
+const GLYPH_KEY = "armada-profile-glyph";
+function isOurGlyph(el: any): boolean {
+  return !!el && typeof el === "object" && el.key === GLYPH_KEY;
+}
+
 // Recursively find the children ARRAY that contains the clock-holder and
 // splice `glyph` right before it (=> between battery and clock). If the clock
 // is a lone child rather than an array item, wrap it as [glyph, child].
-// Returns true once inserted.
+// Returns true once inserted (or once we confirm it's ALREADY inserted).
+//
+// IDEMPOTENCY (audit M3): afterPatch runs on EVERY render of the memo. Today
+// React.createElement hands us a FRESH children array per render, so a plain
+// splice is safe. But if a future steamui build memoizes/reuses that array,
+// splicing every render would stack duplicate glyphs. So before inserting we
+// check whether our keyed glyph is already present in the array and, if so,
+// treat it as done -- never insert a second one.
 function insertBeforeClock(node: any, glyph: any): boolean {
   if (!node || typeof node !== "object") return false;
   const props = node.props;
   if (!props) return false;
   const kids = props.children;
   if (Array.isArray(kids)) {
+    // Already ours? A reused/memoized array would still hold it — don't dupe.
+    if (kids.some(isOurGlyph)) return true;
     for (let i = 0; i < kids.length; i++) {
       if (holdsClock(kids[i])) {
         kids.splice(i, 0, glyph);
@@ -156,6 +172,7 @@ function insertBeforeClock(node: any, glyph: any): boolean {
     return false;
   }
   if (kids && typeof kids === "object") {
+    if (isOurGlyph(kids)) return true; // already just our glyph — nothing to do
     if (holdsClock(kids)) {
       props.children = [glyph, kids];
       return true;
@@ -247,7 +264,7 @@ export function installTopBarProfileIndicator(): () => void {
     try {
       patch = afterPatch(target, "type", (_args: any[], ret: any) => {
         try {
-          insertBeforeClock(ret, <ProfileGlyphSlot key="armada-profile-glyph" />);
+          insertBeforeClock(ret, <ProfileGlyphSlot key={GLYPH_KEY} />);
         } catch (e) {
           warnOnce("insertion failed; leaving top bar untouched:", e);
         }
