@@ -31,10 +31,10 @@ run_hook() {
 fail=0
 check() { if [[ "$2" != "$3" ]]; then echo "FAIL: $1 (want '$3' got '$2')"; fail=1; else echo "ok: $1"; fi; }
 
-# 1) charging -> suspend raises knob to the default floor (176)
+# 1) charging -> suspend raises knob to the default floor (51, quietest reliable spin)
 set_knob 0; set_status Charging; printf 'usb\n' >"$sysfs/class/power_supply/usb/type"
 run_hook pre suspend
-check "charging pre -> default floor" "$(get_knob)" "176"
+check "charging pre -> default floor" "$(get_knob)" "51"
 
 # 2) resume resets to 0
 run_hook post suspend
@@ -53,7 +53,7 @@ check "override clamped to 255" "$(get_knob)" "255"
 # 5) invalid override falls back to default
 set_knob 0; printf 'garbage\n' >"$floor_file"
 run_hook pre suspend
-check "invalid override -> default 176" "$(get_knob)" "176"
+check "invalid override -> default 51" "$(get_knob)" "51"
 rm -f "$floor_file"
 
 # 6) non-suspend sleep type ignored (hibernate)

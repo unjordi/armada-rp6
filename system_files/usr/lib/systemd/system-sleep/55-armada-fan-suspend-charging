@@ -14,7 +14,12 @@ floor_file=${ARMADA_FAN_SUSPEND_CHARGING_PWM_FILE:-/etc/armada/fan-suspend-charg
 # Static PWM (0..255) held across suspend while charging. Not temperature-
 # responsive: with the AP down in deep nothing can re-target it. Override by
 # writing an integer to $floor_file.
-default_floor=${ARMADA_FAN_SUSPEND_CHARGING_PWM:-176}
+# Default is the quietest reliably-spinning floor from the fan curves in
+# armada-powerd/power-profiles.conf: every curve (relaxed/moderate/aggressive)
+# bottoms out at pwm 51 (min_pwm=51, pwm_quantum=8 -> 51 is a valid quantum),
+# i.e. the lowest speed that still turns. 176 (~69% of 255) sounded like full
+# blast; 51 keeps airflow for a battery-heating deep-suspend charge but quiet.
+default_floor=${ARMADA_FAN_SUSPEND_CHARGING_PWM:-51}
 
 [[ "${2:-}" == suspend ]] || exit 0
 [[ -w "$knob" ]] || exit 0   # kernel without the patch -> nothing to do
