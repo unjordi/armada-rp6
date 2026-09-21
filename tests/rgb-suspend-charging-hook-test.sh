@@ -61,6 +61,18 @@ KA_GLOB="$tmp/htr3212/*/keep_alive"
 psy_dir="$tmp/sysfs/class/power_supply/battery"; mkdir -p "$psy_dir"
 set_charge() { printf '%s\n' "$1" >"$psy_dir/status"; printf '%s\n' "${2:-50}" >"$psy_dir/capacity"; }
 
+# ---- fake wake source: pm_wakeup_irq (under sysfs root) + a fake interrupts ---
+# `post` keeps the charge indicator up across a NON-user wake (QG-8-b self-wake /
+# rtc) instead of handing the ring back to the daemon; a real user wake (power
+# button = pmic_pwrkey) restores. The wake type is read from pm_wakeup_irq mapped
+# through /proc/interrupts (override: ARMADA_PROC_INTERRUPTS).
+mkdir -p "$tmp/sysfs/power"
+fake_int="$tmp/interrupts"
+printf '%s\n' ' 21:  0  0  pmic_pwrkey' '200:  0  0  pm8xxx_rtc_alarm' >"$fake_int"
+set_user_wake() { printf '21\n'  >"$tmp/sysfs/power/pm_wakeup_irq"; }  # power button
+set_self_wake() { printf '\n'    >"$tmp/sysfs/power/pm_wakeup_irq"; }  # QG-8-b (no IRQ = "none")
+set_rtc_wake()  { printf '200\n' >"$tmp/sysfs/power/pm_wakeup_irq"; }  # background/rtc
+
 # ---- opt-in config ----------------------------------------------------------
 indicator_config="$tmp/indicator.conf"
 set_indicator()   { printf 'enabled=%s\n' "$1" >"$indicator_config"; }
@@ -103,6 +115,7 @@ run_hook() { # $1=pre|post  $2=suspend|hibernate  [$3=rgb_tool override]
         ARMADA_RGB_CHARGE_INDICATOR_CONFIG="$indicator_config" \
         ARMADA_RGB_INDICATOR_LEDS="$LEDS_GLOB" \
         ARMADA_RGB_KEEPALIVE="$KA_GLOB" \
+        ARMADA_PROC_INTERRUPTS="$fake_int" \
         RGB_CALLS="$rgb_calls" \
         SYSTEMCTL_LOG="$sc_log" \
         SYSTEMCTL_ACTIVE="$sc_active_flag" \
@@ -118,6 +131,7 @@ reset_nodes() {
     done
     for f in "$tmp"/htr3212/*/keep_alive; do printf '0\n' >"$f"; done
     : >"$rgb_calls"; : >"$sc_log"; rm -f "$marker"
+    set_user_wake   # default: a real (power-button) resume -> normal restore
 }
 check() { # $1=msg $2=got $3=exp
     if [[ "$2" == "$3" ]]; then echo "ok: $1"; else echo "FAIL: $1 — got [$2] exp [$3]"; fail=1; fi
@@ -260,5 +274,62 @@ if run_hook pre suspend; then partial_rc=1; else partial_rc=0; fail=1; fi
 check "pre+missing-node: exit 0 (never blocks suspend)" "$partial_rc" "1"
 check "pre+missing-node: a present LED still got armed" "$(cat "$tmp/leds/rgb:l1/trigger" 2>/dev/null)" "$TRIGGER"
 
+# ---- QG-8-b: the charge indicator SURVIVES a self-wake (does not hand the ring
+#      back to the daemon on a non-user resume while still charging) ------------
+# The real-world bug: overnight at mid-SOC the device self-wakes (QG-8-b); the
+# old `post` restarted the daemon on every wake -> the user's effect (screen_sync
+# etc.) repainted the dark screen -> the charge color vanished. Now `post` only
+# restores on a real user wake (power button); a self-wake while charging keeps
+# the indicator armed + seeds the current color + leaves the daemon stopped.
+
+# restore the node that test 15 yanked, so the multi-LED helpers see all 8 again
+mkdir -p "$tmp/leds/rgb:l2"
+printf 'none\n' >"$tmp/leds/rgb:l2/trigger"; printf 'blue green red\n' >"$tmp/leds/rgb:l2/multi_index"
+printf '10 20 30\n' >"$tmp/leds/rgb:l2/multi_intensity"; printf '0\n' >"$tmp/leds/rgb:l2/brightness"
+printf '255\n' >"$tmp/leds/rgb:l2/max_brightness"
+
+# 16) post + SELF-WAKE (no IRQ) + charging + on -> KEEP: re-arm trigger, keep
+#     keep_alive=1, re-seed amber, daemon NOT restarted, no `apply`.
+reset_nodes; set_indicator 1; set_charge Charging 60; set_self_wake; : >"$marker"; service_inactive
+run_hook post suspend
+check "post+self-wake+charging: trigger stays armed (indicator kept)" "$(triggers)" "$TRIGGER"
+check "post+self-wake+charging: keep_alive stays 1"                   "$(keepalives)" "1"
+check "post+self-wake+charging: re-seeds amber (0 168 255)"           "$(intensities)" "0 168 255"
+grep_absent "post+self-wake: daemon NOT restarted (stays out of the way)" "$sc_log" "^start "
+check "post+self-wake: no apply (kernel trigger + seed own the paint)" "$(cat "$rgb_calls")" ""
+check "post+self-wake: marker kept (restore still owed on real wake)"  "$([[ -e "$marker" ]] && echo yes || echo no)" "yes"
+
+# 17) post + SELF-WAKE + FULL -> KEEP green.
+reset_nodes; set_indicator 1; set_charge Full 100; set_self_wake; : >"$marker"; service_inactive
+run_hook post suspend
+check "post+self-wake+full: keeps green (0 255 0)" "$(intensities)" "0 255 0"
+check "post+self-wake+full: trigger stays armed"   "$(triggers)" "$TRIGGER"
+
+# 18) post + SELF-WAKE but DISCHARGING (charger yanked while asleep) -> RESTORE
+#     (nothing to indicate; hand the ring back to the user's lighting).
+reset_nodes; set_indicator 1; set_charge Discharging 55; set_self_wake; : >"$marker"; service_inactive
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+run_hook post suspend
+check "post+self-wake+discharging: trigger disarmed (restore)" "$(triggers)" "none"
+check "post+self-wake+discharging: keep_alive cleared"        "$(keepalives)" "0"
+grep_ok "post+self-wake+discharging: daemon restarted"        "$sc_log" "^start armada-rgb\.service$"
+
+# 19) post + SELF-WAKE + charging but indicator OFF -> RESTORE (opt-out honored).
+reset_nodes; set_indicator 0; set_charge Charging 60; set_self_wake; service_active
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+run_hook post suspend
+check "post+self-wake+off: disarmed (indicator opt-out honored)" "$(triggers)" "none"
+check "post+self-wake+off: repaints user lighting via apply"     "$(cat "$rgb_calls")" "apply"
+set_indicator 1
+
+# 20) post + USER WAKE (power button) while charging + on -> RESTORE (the user
+#     picked it up: give them their own lighting back, not the charge color).
+reset_nodes; set_indicator 1; set_charge Charging 60; set_user_wake; : >"$marker"; service_inactive
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+run_hook post suspend
+check "post+user-wake+charging: trigger disarmed (user's lighting back)" "$(triggers)" "none"
+check "post+user-wake+charging: keep_alive cleared"                      "$(keepalives)" "0"
+grep_ok "post+user-wake+charging: daemon restarted"                      "$sc_log" "^start armada-rgb\.service$"
+
 if (( fail )); then echo "rgb-suspend-charging hook: FAILURES"; exit 1; fi
-echo "PASS: rgb-suspend-charging-hook-test (design A / kernel trigger + QG-8 seed & daemon hand-off)"
+echo "PASS: rgb-suspend-charging-hook-test (design A / kernel trigger + QG-8 seed & daemon hand-off + QG-8-b self-wake survival)"

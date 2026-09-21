@@ -99,6 +99,29 @@ set_trigger() { # $1 = trigger name, or "none"
     done
 }
 
+# True (0) while a charger is attached -- charging or already full. When this is
+# false the charge indicator has nothing to show and `post` restores normally.
+is_charging() {
+    local status
+    status=$(cat "$sysfs_root/class/power_supply/$psy/status" 2>/dev/null) || return 1
+    [[ "$status" == Charging || "$status" == Full ]]
+}
+
+# True (0) if THIS resume was a user wake (power button). Read straight from
+# pm_wakeup_irq (like 40-armada-wake-ledger) so we do not depend on hook
+# ordering. A self-wake mid-charge (armada QG-8-b) reports no attributable IRQ
+# ("none"); the power button is pmic_pwrkey. Anything that is NOT the power key
+# -- self-wake, rtc, unknown -- counts as NON-user so the indicator is kept up.
+was_user_wake() {
+    local irq name
+    irq=$(cat "$sysfs_root/power/pm_wakeup_irq" 2>/dev/null)
+    name=$(awk -v i="${irq}:" '$1 == i {print $NF}' "${ARMADA_PROC_INTERRUPTS:-/proc/interrupts}" 2>/dev/null)
+    case "$name" in
+        *pwrkey*) return 0 ;;
+        *)        return 1 ;;
+    esac
+}
+
 # Stop the daemon so it stops reclaiming the trigger; record that we did.
 stop_daemon() {
     command -v systemctl >/dev/null 2>&1 || return 0
@@ -180,6 +203,23 @@ case "${1:-}" in
         seed_current_charge
         ;;
     post)
+        # If the indicator is on, a charger is still attached, and this was NOT
+        # a user wake (power button), the device woke on its own -- a mid-charge
+        # self-wake (armada QG-8-b), an rtc/background wake -- with the screen
+        # still off. Handing the ring back to the daemon here is exactly what
+        # made the overnight charge indicator disappear: the daemon repaints the
+        # user's effect (e.g. screen_sync -> the dark screen -> LEDs go dark) and
+        # the charge color is gone until the next sleep. So keep the indicator
+        # up instead: re-seed the current charge color and leave the trigger
+        # armed + daemon stopped (the marker persists), so the charge status
+        # survives the self-wake. The full restore below runs on the REAL user
+        # wake (power button) or once the charger is unplugged.
+        if indicator_enabled && is_charging && ! was_user_wake; then
+            set_keep_alive 1
+            set_trigger "$trigger"
+            seed_current_charge
+            exit 0
+        fi
         # Unconditional and idempotent: safe even if `pre` never armed anything.
         set_trigger none
         set_keep_alive 0
