@@ -130,3 +130,23 @@ for pkg in qt5-qtbase qt5-qtdeclarative qt5-qtquickcontrols2; do
         fi
     fi
 done
+
+# ─── Paquetes INERTES para la RP6 (Jordi 2026-09-21: no usa Heroic, ni Firefox,
+#     ni impresión, ni desarrollo "no cocino") — peso muerto puro. Guard con
+#     --whatrequires: SOLO se quita si NADA funcional lo requiere (self-protecting;
+#     si algo lo pide, se SALTA y se loguea, no rompe el build). ─────────────────
+for pkg in \
+    heroic-games-launcher \
+    firefox \
+    webkitgtk6.0 webkit2gtk4.1 webkit2gtk3 \
+    cups cups-filters cups-pk-helper cups-browsed \
+    gcc gcc-c++ cpp make automake autoconf libtool ; do
+    rpm -q "$pkg" >/dev/null 2>&1 || continue
+    req="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -vE '^no package|^$' || true)"
+    if [ -z "$req" ]; then
+        echo "  slim: quitando $pkg (nada lo requiere)"
+        dnf5 -y remove --no-autoremove "$pkg" || true
+    else
+        echo "  slim: SALTO $pkg — requerido por: $req"
+    fi
+done
