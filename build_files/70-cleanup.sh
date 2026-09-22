@@ -56,20 +56,97 @@ for package in \
     esac
 done
 
+# Firmware pruning — ALLOWLIST (conservador): el SM8550 (kalama) solo usa
+# qcom (adreno a740/a6xx, venus, adsp/cdsp/modem), ath12k/ath11k (WCN7850)
+# y el audio/bt del device. Borramos TODO lo demás de /usr/lib/firmware.
+# (allowlist, no blocklist frágil: si aparece una familia nueva, se borra por defecto)
+FW_ALLOW='qcom ath12k ath11k ath10k ath6k ath9k brcm cypress nxp ti-connectivity'
+for d in /usr/lib/firmware/*/; do
+    name="$(basename "$d")"
+    keep=0
+    for a in $FW_ALLOW; do
+        case "$name" in "$a"|"$a"-*) keep=1 ;; esac
+    done
+    if [ "$keep" -eq 0 ]; then
+        rm -rf "$d"
+    fi
+done
+# Dentro de qcom: dejar solo las familias del kalama (a740/a6xx, venus, adsp/cdsp/modem, wcn7850)
+# y borrar SoCs/funciones que el SM8550 no usa.
 rm -rf \
-    /usr/lib/firmware/amdgpu \
-    /usr/lib/firmware/amd-ucode \
-    /usr/lib/firmware/brcm \
-    /usr/lib/firmware/cirrus \
-    /usr/lib/firmware/cypress \
-    /usr/lib/firmware/intel \
-    /usr/lib/firmware/i915 \
-    /usr/lib/firmware/iwlwifi-* \
-    /usr/lib/firmware/mediatek \
-    /usr/lib/firmware/mrvl \
-    /usr/lib/firmware/nvidia \
-    /usr/lib/firmware/nxp \
-    /usr/lib/firmware/rtw89 \
-    /usr/lib/firmware/rtl_nic \
-    /usr/lib/firmware/ti-connectivity \
-    /usr/lib/firmware/xe
+    /usr/lib/firmware/qcom/sm8750 \
+    /usr/lib/firmware/qcom/x1e80100 \
+    /usr/lib/firmware/qcom/sm8650 \
+    /usr/lib/firmware/qcom/vpu \
+    /usr/lib/firmware/qcom/sc8280xp \
+    /usr/lib/firmware/qcom/kaanapali \
+    /usr/lib/firmware/qcom/sdm845 \
+    /usr/lib/firmware/qcom/sa8775p \
+    /usr/lib/firmware/qcom/sm8250 \
+    /usr/lib/firmware/qcom/maili \
+    /usr/lib/firmware/qcom/qcm2290 \
+    /usr/lib/firmware/qcom/qcs6490 \
+    /usr/lib/firmware/qcom/apq8096 \
+    /usr/lib/firmware/qcom/glymur
+
+# Doc/man pruning (🟢, ~164M): documentación y manpages no necesarios en el device.
+rm -rf /usr/share/doc /usr/share/man
+
+# Vulkan drivers (🟢, ~110M): dejar solo freedreno (adreno a740) + swrast/zink.
+# Borramos los ICDs de GPU que el SM8550 no usa.
+rm -f \
+    /usr/lib64/libvulkan_radeon.so \
+    /usr/lib64/libvulkan_panfrost.so \
+    /usr/lib64/libvulkan_nouveau.so \
+    /usr/lib64/libvulkan_asahi.so \
+    /usr/lib64/libvulkan_lvp.so \
+    /usr/lib64/libvulkan_powervr_mesa.so \
+    /usr/lib64/libvulkan_broadcom.so \
+    /usr/lib64/libvulkan_dzn.so \
+    /usr/lib64/libvulkan_virtio.so
+
+# CJK input methods (🟢, ~59M): libpinyin/anthy/ibus-* no se usan en el device.
+# Solo se borran si NADA del set los requiere (verificación con rpm --whatrequires).
+for pkg in libpinyin libpinyin-data anthy anthy-unicode ibus ibus-libpinyin ibus-anthy; do
+    if rpm -q "$pkg" >/dev/null 2>&1; then
+        requires="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -v '^$' || true)"
+        if [ -z "$requires" ]; then
+            dnf5 -y remove --no-autoremove "$pkg"
+        else
+            echo "WARN: $pkg requerido por: $requires — NO se borra (conservador)"
+        fi
+    fi
+done
+
+# Qt5 (🟢, ~34M): solo si NADA del set lo requiere (Plasma/KDE usa Qt6).
+# Verificación con rpm --whatrequires; si algo lo pide, NO se borra.
+for pkg in qt5-qtbase qt5-qtdeclarative qt5-qtquickcontrols2; do
+    if rpm -q "$pkg" >/dev/null 2>&1; then
+        requires="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -v '^$' || true)"
+        if [ -z "$requires" ]; then
+            dnf5 -y remove --no-autoremove "$pkg"
+        else
+            echo "WARN: $pkg requerido por: $requires — NO se borra (conservador)"
+        fi
+    fi
+done
+
+# ─── Paquetes INERTES para la RP6 (Jordi 2026-09-21: no usa Heroic, ni Firefox,
+#     ni impresión, ni desarrollo "no cocino") — peso muerto puro. Guard con
+#     --whatrequires: SOLO se quita si NADA funcional lo requiere (self-protecting;
+#     si algo lo pide, se SALTA y se loguea, no rompe el build). ─────────────────
+for pkg in \
+    heroic-games-launcher \
+    firefox \
+    webkitgtk6.0 webkit2gtk4.1 webkit2gtk3 \
+    cups cups-filters cups-pk-helper cups-browsed \
+    gcc gcc-c++ cpp make automake autoconf libtool ; do
+    rpm -q "$pkg" >/dev/null 2>&1 || continue
+    req="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -vE '^no package|^$' || true)"
+    if [ -z "$req" ]; then
+        echo "  slim: quitando $pkg (nada lo requiere)"
+        dnf5 -y remove --no-autoremove "$pkg" || true
+    else
+        echo "  slim: SALTO $pkg — requerido por: $req"
+    fi
+done
