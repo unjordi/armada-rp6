@@ -1,0 +1,130 @@
+#!/bin/bash
+# 41-armada-wake-probe — SOLO-LOG instrumentation to NAME the wake source of the
+# deep-suspend wake loop on ArmadaOS (Snapdragon 8 Gen 2, aarch64).
+#
+# The existing wake-ledger (40-armada-wake-ledger) reports wake_irq=none because the
+# arming lives in the PDC/firmware (AOSS), not in a Linux IRQ. pm_wakeup_irq only
+# keeps the LAST wake and is often empty here. So we DIFF /proc/interrupts across the
+# sleep (by NAME, since IRQ numbers re-enumerate) and dump wakeup_sources + the kernel
+# PM log to find which source actually fired. Best-effort only: every step is
+# `|| true`, we never `exit 1`, and we never block or delay the suspend.
+set -uo pipefail
+
+[[ "${2:-}" == suspend ]] || exit 0
+
+sysfs_root=${ARMADA_SYSFS_ROOT:-/sys}
+proc_interrupts=${ARMADA_PROC_INTERRUPTS:-/proc/interrupts}
+probe_dir=${ARMADA_WAKE_PROBE_DIR:-/var/lib/armada/wake-probe}
+run_dir=${ARMADA_WAKE_PROBE_RUN:-/run/armada/wake-probe}
+wakeup_sources=${ARMADA_WAKEUP_SOURCES:-/sys/kernel/debug/wakeup_sources}
+
+# Sum every CPU's count for one IRQ line; the NAME is the last field (the label).
+# Emits "name<TAB>total" for data lines only (skips the header row).
+irq_totals() {
+    # KEY = the full LABEL (chip hwirq type device), NOT the IRQ number: numbers re-enumerate on resume
+    # (PCIe/Wi-Fi MSI come back), labels don't. TOTAL = sum of the per-CPU columns ONLY (the header says
+    # how many CPUs). Bug fixed 2026-09-27: the old version also summed the hwirq column (e.g. 1303088)
+    # and keyed by the last word, so deltas came out as nonsense (+100663343 "temp-alarm").
+    awk 'NR==1 {ncpu=NF; next}
+         NF>=2 && $1 ~ /:$/ {
+        total=0
+        for (i=2; i<=ncpu+1 && i<=NF; i++) if ($i ~ /^[0-9]+$/) total += $i
+        label=""; for (j=ncpu+2; j<=NF; j++) label=label (label==""?"":" ") $j
+        if (label=="") { label=$1 }
+        sum[label]+=total
+    } END { for (l in sum) printf "%s\t%d\n", l, sum[l] }' "$1" 2>/dev/null
+}
+
+if [[ "${1:-}" == pre ]]; then
+    mkdir -p "$run_dir" 2>/dev/null || true
+    # Snapshot the FULL interrupts table; we diff by NAME in post.
+    cp -f "$proc_interrupts" "$run_dir/interrupts.pre" 2>/dev/null || true
+    # Turn on kernel PM debug so the resume log names the source (best-effort).
+    printf '1\n' >"$sysfs_root/power/pm_debug_messages" 2>/dev/null || true
+    printf '1\n' >"$sysfs_root/power/pm_print_times" 2>/dev/null || true
+    # Entry timestamp (ISO-8601).
+    date -Iseconds >"$run_dir/pre.ts" 2>/dev/null || true
+    # Battery state at entry.
+    { cat "$sysfs_root/class/power_supply/battery/status" 2>/dev/null; echo; \
+      cat "$sysfs_root/class/power_supply/battery/capacity" 2>/dev/null; echo; } \
+        >"$run_dir/battery.pre" 2>/dev/null || true
+    # suspend_stats/success at entry.
+    cat "$sysfs_root/power/suspend_stats/success" 2>/dev/null >"$run_dir/success.pre" || true
+    exit 0
+fi
+
+if [[ "${1:-}" == post ]]; then
+    mkdir -p "$probe_dir" 2>/dev/null || true
+    rec="$probe_dir/$(date +%Y%m%dT%H%M%S).log"
+    {
+        printf '=== armada wake-probe ===\n'
+        printf 'pre_ts=%s\n' "$(cat "$run_dir/pre.ts" 2>/dev/null)"
+        printf 'post_ts=%s\n' "$(date -Iseconds 2>/dev/null)"
+
+        # Battery pre/post (status + capacity).
+        printf 'battery_pre: status=%s capacity=%s\n' \
+            "$(sed -n 1p "$run_dir/battery.pre" 2>/dev/null)" \
+            "$(sed -n 2p "$run_dir/battery.pre" 2>/dev/null)"
+        printf 'battery_post: status=%s capacity=%s\n' \
+            "$(cat "$sysfs_root/class/power_supply/battery/status" 2>/dev/null)" \
+            "$(cat "$sysfs_root/class/power_supply/battery/capacity" 2>/dev/null)"
+
+        # suspend_stats/success delta.
+        succ_pre=$(cat "$run_dir/success.pre" 2>/dev/null)
+        succ_post=$(cat "$sysfs_root/power/suspend_stats/success" 2>/dev/null)
+        printf 'suspend_stats/success: pre=%s post=%s\n' \
+            "${succ_pre:-?}" "${succ_post:-?}"
+
+        # pm_wakeup_irq (in case it names the source this time).
+        printf 'pm_wakeup_irq=%s\n' "$(cat "$sysfs_root/power/pm_wakeup_irq" 2>/dev/null)"
+
+        # DELTA of interrupts BY NAME: report sources whose count INCREASED during
+        # the sleep, ordered by largest delta (top 15). Match by NAME, not number.
+        printf '\n--- interrupt delta (by label, smallest increases first = wake candidates) ---\n'
+        if [[ -r "$run_dir/interrupts.pre" && -r "$proc_interrupts" ]]; then
+            # Every source whose count ROSE across the sleep, SMALLEST delta first: in deep the CPUs are
+            # off, so the wake source shows up as a tiny delta (1-few); big deltas are pre/post noise.
+            join -t $'\t' -j1 \
+                <(irq_totals "$run_dir/interrupts.pre" | sort -t $'\t' -k1,1) \
+                <(irq_totals "$proc_interrupts" | sort -t $'\t' -k1,1) 2>/dev/null \
+            | awk -F'\t' '{d=$3-$2; if (d>0) printf "%d\t%s\n", d, $1}' \
+            | sort -t $'\t' -k1,1n | head -n 25 \
+            | awk -F'\t' '{printf "  +%-8d %s\n", $1, $2}'
+        else
+            printf '  (no pre/post interrupts to diff)\n'
+        fi
+
+        # wakeup_sources dump, ordered by last_change_ms desc (top 15).
+        printf '\n--- wakeup_sources (top 15 by last_change_ms) ---\n'
+        if [[ -r "$wakeup_sources" ]]; then
+            awk 'NR>1 && NF>=2 {printf "%s\t%s\n", $1, $(NF-1)}' "$wakeup_sources" 2>/dev/null \
+            | sort -t $'\t' -k2,2nr | head -n 15 \
+            | awk -F'\t' '{printf "  last_change_ms=%s  %s\n", $2, $1}'
+        else
+            printf '  (wakeup_sources not readable)\n'
+        fi
+
+        # Kernel PM / wakeup / sys-resume lines from the last resume (best-effort).
+        printf '\n--- kernel PM log (last resume) ---\n'
+        if command -v journalctl >/dev/null 2>&1; then
+            since=$(cat "$run_dir/pre.ts" 2>/dev/null)
+            if [[ -n "$since" ]]; then
+                journalctl -k -b -o short-iso --since "@$(date -d "$since" +%s 2>/dev/null)" 2>/dev/null \
+                    | grep -Ei 'PM:|wakeup|sys-resume' | tail -n 40
+            else
+                journalctl -k -b -o short-iso 2>/dev/null | grep -Ei 'PM:|wakeup|sys-resume' | tail -n 40
+            fi
+        else
+            dmesg 2>/dev/null | grep -Ei 'PM:|wakeup|sys-resume' | tail -n 40
+        fi
+        printf '\n=== end ===\n'
+    } >"$rec" 2>/dev/null || true
+
+    # Prune: keep at most 60 probe logs, drop the oldest.
+    if [[ -d "$probe_dir" ]]; then
+        ls -1t "$probe_dir"/*.log 2>/dev/null | tail -n +61 | xargs -r rm -f -- 2>/dev/null || true
+    fi
+    exit 0
+fi
+
+exit 0
