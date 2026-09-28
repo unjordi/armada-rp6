@@ -130,6 +130,7 @@ dnf5 -y install --setopt=install_weak_deps=False \
     dolphin \
     ark \
     gwenview \
+    spectacle \
     kwrite
 
 # feedbackd's role-routing sinks can wedge Steam audio during session startup.
