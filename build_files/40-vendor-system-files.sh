@@ -33,11 +33,20 @@ EOF
 source /ctx/abl/release.env
 abl_releases=/ctx/abl/releases.tsv
 abl_archive=/tmp/rocknix-abl.tar.gz
-curl --connect-timeout 30 --retry 3 -fsSL -o "${abl_archive}" \
-    "https://github.com/ROCKNIX/abl/releases/download/v${ARMADA_ABL_VERSION}/rocknix-abl-v${ARMADA_ABL_VERSION}.tar.gz"
 abl_src=/tmp/rocknix-abl
 mkdir -p "${abl_src}"
-tar -xzf "${abl_archive}" -C "${abl_src}" --strip-components=1
+# ROCKNIX drops the tarball from older releases once a new one ships. The payloads are verified below
+# against releases.tsv (size + sha256), so a vendored copy of the SAME approved bytes is an equal source.
+if curl --connect-timeout 30 --retry 3 -fsSL -o "${abl_archive}" \
+    "https://github.com/ROCKNIX/abl/releases/download/v${ARMADA_ABL_VERSION}/rocknix-abl-v${ARMADA_ABL_VERSION}.tar.gz"; then
+    tar -xzf "${abl_archive}" -C "${abl_src}" --strip-components=1
+elif [[ -d /ctx/abl/vendor/v${ARMADA_ABL_VERSION} ]]; then
+    echo "[ABL] upstream v${ARMADA_ABL_VERSION} tarball unavailable; using vendored payloads (hash-verified below)" >&2
+    cp /ctx/abl/vendor/v${ARMADA_ABL_VERSION}/abl_signed-*.elf "${abl_src}/"
+else
+    echo "[ABL] ERROR: v${ARMADA_ABL_VERSION} tarball unavailable upstream and no vendored copy in abl/vendor/" >&2
+    exit 1
+fi
 manifest=/usr/lib/armada/abl/manifest
 install -Dpm 0644 /dev/null "${manifest}"
 install -Dpm 0644 "${abl_releases}" /usr/lib/armada/abl/releases.tsv
