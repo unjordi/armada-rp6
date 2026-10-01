@@ -19,6 +19,7 @@ dnf5 -y install --setopt=install_weak_deps=False \
     atheros-firmware \
     NetworkManager \
     NetworkManager-wifi \
+    wireguard-tools \
     iwd \
     wpa_supplicant \
     bluez \
