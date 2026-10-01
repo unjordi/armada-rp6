@@ -38,6 +38,10 @@ def build_config(include_games=True):
         "fexProfiles": fex_profile_labels(fex_contract),
         "perf": perf_info(),
         "cpuDeviceClass": env.get("ARMADA_SOC_CLASS", ""),
+        "topBarIndicator": {
+            "sizePx": env.get("ARMADA_UI_TOPBAR_INDICATOR_SIZE_PX", ""),
+            "marginPx": env.get("ARMADA_UI_TOPBAR_INDICATOR_MARGIN_PX", ""),
+        },
         "rgbSupported": rgb_supported(),
         "protonDefaults": [
             default.strip()

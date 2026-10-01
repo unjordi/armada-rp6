@@ -37,6 +37,7 @@
 // ecosystem; the safe degradation is "no glyph", never a broken top bar.
 
 import { afterPatch, findModuleExport } from "@decky/ui";
+import { useEffect, useState } from "react";
 import { getActivePowerProfile } from "../backend";
 import { useActivePowerProfile } from "../hooks/useActivePowerProfile";
 
@@ -65,16 +66,52 @@ function startProfilePolling(): void {
   profileTimer = setInterval(poll, 3000);
 }
 
-// Glyph size. ~12–16px reads as a peer of the native top-bar icons; kept as a
-// named constant so a QA nudge is a one-liner. currentColor => inherits the
-// bar's icon color (white) automatically.
-const GLYPH_PX = 16;
+// Glyph geometry is per-device and comes from the device conf
+// (ARMADA_UI_TOPBAR_INDICATOR_SIZE_PX / _MARGIN_PX), delivered with the plugin
+// config. A device without the keys keeps these defaults. currentColor =>
+// inherits the bar's icon color (white) automatically.
+export interface IndicatorGeometry {
+  sizePx: number;
+  marginPx: number;
+}
+const DEFAULT_GEOMETRY: IndicatorGeometry = { sizePx: 16, marginPx: 6 };
 
-function LeafGlyph() {
+let geometry: IndicatorGeometry = DEFAULT_GEOMETRY;
+const geometryListeners = new Set<(next: IndicatorGeometry) => void>();
+
+function pixels(raw: unknown, fallback: number): number {
+  if (raw === undefined || raw === null || String(raw).trim() === "") return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+// Called once the plugin config arrives. The glyph may already be on screen
+// with the defaults, so subscribers re-render with the device values.
+export function setTopBarIndicatorGeometry(raw?: { sizePx?: string; marginPx?: string } | null): void {
+  geometry = {
+    sizePx: pixels(raw?.sizePx, DEFAULT_GEOMETRY.sizePx),
+    marginPx: pixels(raw?.marginPx, DEFAULT_GEOMETRY.marginPx),
+  };
+  geometryListeners.forEach((listener) => listener(geometry));
+}
+
+function useIndicatorGeometry(): IndicatorGeometry {
+  const [current, setCurrent] = useState(geometry);
+  useEffect(() => {
+    geometryListeners.add(setCurrent);
+    setCurrent(geometry);
+    return () => {
+      geometryListeners.delete(setCurrent);
+    };
+  }, []);
+  return current;
+}
+
+function LeafGlyph({ px }: { px: number }) {
   return (
     <svg
-      width={GLYPH_PX}
-      height={GLYPH_PX}
+      width={px}
+      height={px}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -89,11 +126,11 @@ function LeafGlyph() {
   );
 }
 
-function BoltGlyph() {
+function BoltGlyph({ px }: { px: number }) {
   return (
     <svg
-      width={GLYPH_PX}
-      height={GLYPH_PX}
+      width={px}
+      height={px}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -114,7 +151,9 @@ function BoltGlyph() {
 // throws into Steam's render.
 function ProfileGlyphSlot() {
   let profile = "";
+  let size: IndicatorGeometry = geometry;
   try {
+    size = useIndicatorGeometry();
     // Seed with the module-level cache so the correct glyph paints on the
     // FIRST render (no null-until-poll window). The hook keeps it live after.
     profile = useActivePowerProfile(cachedProfile);
@@ -122,8 +161,8 @@ function ProfileGlyphSlot() {
     return null;
   }
   let glyph: any = null;
-  if (profile === "eco") glyph = <LeafGlyph />;
-  else if (profile === "performance") glyph = <BoltGlyph />;
+  if (profile === "eco") glyph = <LeafGlyph px={size.sizePx} />;
+  else if (profile === "performance") glyph = <BoltGlyph px={size.sizePx} />;
   if (!glyph) return null;
   return (
     <div
@@ -133,7 +172,7 @@ function ProfileGlyphSlot() {
         alignItems: "center",
         justifyContent: "center",
         color: "currentColor",
-        margin: "0 6px",
+        margin: `0 ${size.marginPx}px`,
         pointerEvents: "none",
         alignSelf: "center",
       }}
