@@ -73,3 +73,6 @@ if [[ "${dual_complete}" != 1 && "${rotation_complete}" == 1 && "${scale_complet
         fi
     fi
 fi
+
+# Ensure Spectacle screenshots directory exists
+mkdir -p "${HOME}/juegos/screensHots" 2>/dev/null || true
