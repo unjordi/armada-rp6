@@ -170,12 +170,13 @@ jobs:
       - name: Resolve RP6 package pins
         id: rp6_pkgs
         # Use the packages armada-packages-rp6 publishes from develop when they
-        # exist; otherwise keep the digest pinned in the Containerfile.
+        # exist (kernel, armada-rgb, gamescope); otherwise keep the Containerfile pin.
         run: |
           set -euo pipefail
-          for arg in KERNEL_PKG ARMADA_RGB_PKG; do
+          for entry in KERNEL_PKG:kernel ARMADA_RGB_PKG:armada-rgb GAMESCOPE_PKG:gamescope; do
+            arg="${entry%%:*}"
+            repo="ghcr.io/${{ github.repository_owner }}/armada-packages-rp6/${entry#*:}"
             pin=$(grep -m1 "^ARG ${arg}=" Containerfile | cut -d= -f2-)
-            repo="${pin%@*}"
             if d=$(skopeo inspect --override-arch arm64 --format '{{.Digest}}' "docker://${repo}:develop" 2>/dev/null); then
               pin="${repo}@${d}"
             else
@@ -206,6 +207,7 @@ jobs:
             CHUNKAH_CONFIG_STR=${{ steps.chunkah_config.outputs.config }}
             KERNEL_PKG=${{ steps.rp6_pkgs.outputs.KERNEL_PKG }}
             ARMADA_RGB_PKG=${{ steps.rp6_pkgs.outputs.ARMADA_RGB_PKG }}
+            GAMESCOPE_PKG=${{ steps.rp6_pkgs.outputs.GAMESCOPE_PKG }}
           # armada-rootfs is consumed through RUN --mount, so retain otherwise-unused stages.
           extra-args: |
             --skip-unused-stages=false
