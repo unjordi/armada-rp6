@@ -17,6 +17,7 @@ import {
 } from "../backend";
 import { makeCapture, normalizedValue, triggerPercent, updateCapture } from "../lib/calibration";
 import type { CalibrationState, Capture } from "../types";
+import { t } from "../i18n";
 
 type Phase = "idle" | "recording";
 
@@ -106,7 +107,7 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
           setCapture((current) => updateCapture(current || makeCapture(next), next));
         }
       } catch (error) {
-        if (!cancelled) setState({ supported: false, reason: friendlyError(error, "Controller calibration isn't available on this device."), controls: {} } as CalibrationState);
+        if (!cancelled) setState({ supported: false, reason: friendlyError(error, t("Controller calibration isn't available on this device.")), controls: {} } as CalibrationState);
       } finally {
         inflight = false;
       }
@@ -144,7 +145,7 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
       setCapture(null);
       setPhase("idle");
     } catch (error) {
-      setState((current) => ({ ...(current || {}), supported: false, reason: friendlyError(error, "Couldn't update calibration. Try again.") } as CalibrationState));
+      setState((current) => ({ ...(current || {}), supported: false, reason: friendlyError(error, t("Couldn't update calibration. Try again.")) } as CalibrationState));
       setPhase("idle");
     }
   };
@@ -153,28 +154,28 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
       const next = await resetCalibration();
       setState(next);
     } catch (error) {
-      setState((current) => ({ ...(current || {}), supported: false, reason: friendlyError(error, "Couldn't update calibration. Try again.") } as CalibrationState));
+      setState((current) => ({ ...(current || {}), supported: false, reason: friendlyError(error, t("Couldn't update calibration. Try again.")) } as CalibrationState));
     }
   };
 
   const instructions = !state
-    ? "Checking controller..."
+    ? t("Checking controller...")
     : !canApply
-      ? "This device can't save calibration, but you can check stick and trigger response here."
+      ? t("This device can't save calibration, but you can check stick and trigger response here.")
       : phase === "recording"
-        ? "Move both sticks in full circles and fully press both triggers, then Save."
-        : "Press Start, then move sticks and triggers through full range.";
+        ? t("Move both sticks in full circles and fully press both triggers, then Save.")
+        : t("Press Start, then move sticks and triggers through full range.");
 
   return (
     <ModalRoot onCancel={close}>
       <DialogBody>
         <div style={{ ...gridTwoCol, alignItems: "start", marginBottom: "22px" }}>
-          <StickPlot title="Left Stick" xName="left_x" yName="left_y" state={state} />
-          <StickPlot title="Right Stick" xName="right_x" yName="right_y" state={state} />
+          <StickPlot title={t("Left Stick")} xName="left_x" yName="left_y" state={state} />
+          <StickPlot title={t("Right Stick")} xName="right_x" yName="right_y" state={state} />
         </div>
         <div style={{ ...gridTwoCol, marginBottom: "16px" }}>
-          <TriggerBar title="LT" name="left_trigger" state={state} />
-          <TriggerBar title="RT" name="right_trigger" state={state} />
+          <TriggerBar title={t("LT")} name="left_trigger" state={state} />
+          <TriggerBar title={t("RT")} name="right_trigger" state={state} />
         </div>
         <div style={{ fontSize: "13px", lineHeight: "18px", opacity: 0.72, textAlign: "center" }}>{instructions}</div>
       </DialogBody>
@@ -182,18 +183,18 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
         <style>{focusStyles}</style>
         {!canApply ? (
           <div className="armada-cal-footer" style={{ display: "flex", gap: "10px" }}>
-            <DialogButton onClick={close}>Close</DialogButton>
+            <DialogButton onClick={close}>{t("Close")}</DialogButton>
           </div>
         ) : phase === "recording" ? (
           <div className="armada-cal-footer" style={{ display: "flex", gap: "10px" }}>
-            <DialogButton onClick={save} disabled={!capture}>Save Calibration</DialogButton>
-            <DialogButton onClick={close}>Close</DialogButton>
+            <DialogButton onClick={save} disabled={!capture}>{t("Save Calibration")}</DialogButton>
+            <DialogButton onClick={close}>{t("Close")}</DialogButton>
           </div>
         ) : (
           <div className="armada-cal-footer" style={{ display: "flex", gap: "10px" }}>
-            <DialogButton onClick={start}>Start Calibration</DialogButton>
-            <DialogButton onClick={reset}>Reset to Defaults</DialogButton>
-            <DialogButton onClick={close}>Close</DialogButton>
+            <DialogButton onClick={start}>{t("Start Calibration")}</DialogButton>
+            <DialogButton onClick={reset}>{t("Reset to Defaults")}</DialogButton>
+            <DialogButton onClick={close}>{t("Close")}</DialogButton>
           </div>
         )}
       </DialogFooter>

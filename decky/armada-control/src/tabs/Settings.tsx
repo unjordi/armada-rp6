@@ -16,9 +16,14 @@ import {
 import { openCalibration } from "../components/Calibration";
 import { SelectEdit, SliderEdit, ToggleRow } from "../components/widgets";
 import { friendlyError } from "../lib/errors";
-import type { Config } from "../types";
+import type { Config, DropdownChoice } from "../types";
+import { t, tLabel } from "../i18n";
 
 const BOTTOM_SCREEN_BRIGHTNESS_DELAY_MS: number = 150;
+
+function translatedOptions(options?: DropdownChoice[]): DropdownChoice[] {
+  return (options || []).map((option) => ({ ...option, label: tLabel(option.label) }));
+}
 
 export function Settings({ config, setConfig }: {
   config: Config;
@@ -112,7 +117,7 @@ export function Settings({ config, setConfig }: {
       setConfig((current) => (current ? { ...current, bottomScreenEnabled: applied } : current));
     } catch (error) {
       setConfig((current) => (current ? { ...current, bottomScreenEnabled: !enabled } : current));
-      toaster.toast({ title: "Could not change bottom screen", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not change bottom screen"), body: friendlyError(error) });
     }
   };
   const setBottomScreenBrightness = (brightness: number) => {
@@ -131,7 +136,7 @@ export function Settings({ config, setConfig }: {
           ...current,
           bottomScreenBrightness: appliedBottomScreenBrightness.current,
         } : current));
-        toaster.toast({ title: "Could not change bottom-screen brightness", body: friendlyError(error) });
+        toaster.toast({ title: t("Could not change bottom-screen brightness"), body: friendlyError(error) });
       }
     }, BOTTOM_SCREEN_BRIGHTNESS_DELAY_MS);
   };
@@ -143,7 +148,7 @@ export function Settings({ config, setConfig }: {
       setConfig((current: Config | null) => (current ? { ...current, desktopMode: applied } : current));
     } catch (error) {
       setConfig((current: Config | null) => (current ? { ...current, desktopMode: previous } : current));
-      toaster.toast({ title: "Could not change desktop mode", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not change desktop mode"), body: friendlyError(error) });
     }
   }
   const setSleepMode = async (value: string) => {
@@ -154,43 +159,43 @@ export function Settings({ config, setConfig }: {
       setConfig((current) => (current ? { ...current, sleepMode: applied } : current));
     } catch (error) {
       setConfig((current) => (current ? { ...current, sleepMode: previous } : current));
-      toaster.toast({ title: "Could not change sleep mode", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not change sleep mode"), body: friendlyError(error) });
     }
   };
   return (
     <>
-      <PanelSection title="Controller">
+      <PanelSection title={t("Controller")}>
         <SelectEdit
-          label="Emulation"
+          label={t("Emulation")}
           value={config.controllerType || "deck-uhid"}
-          options={config.controllerTypes || []}
+          options={translatedOptions(config.controllerTypes)}
           onChange={setControllerType}
         />
-        <ButtonItem layout="below" onClick={openCalibration}>Launch Calibration</ButtonItem>
+        <ButtonItem layout="below" onClick={openCalibration}>{t("Launch Calibration")}</ButtonItem>
       </PanelSection>
-      <PanelSection title="System">
+      <PanelSection title={t("System")}>
         <SelectEdit
-          label="Sleep Mode"
+          label={t("Sleep Mode")}
           value={config.sleepMode || "s2idle"}
-          options={config.sleepModes || []}
+          options={translatedOptions(config.sleepModes)}
           onChange={setSleepMode}
         />
-        <ToggleRow label="Enable SSH" value={!!config.sshEnabled} onChange={setSshEnabled} />
-        <Field label="OS Version" description={config.osVersion || "unknown"} />
-        <Field label="ABL Version" description={config.ablVersion || "unknown"} />
+        <ToggleRow label={t("Enable SSH")} value={!!config.sshEnabled} onChange={setSshEnabled} />
+        <Field label={t("OS Version")} description={config.osVersion || t("unknown")} />
+        <Field label={t("ABL Version")} description={config.ablVersion || t("unknown")} />
       </PanelSection>
-      <PanelSection title="Experimental">
+      <PanelSection title={t("Experimental")}>
         {config.bottomScreenSupported && (
           <>
             <ToggleRow
-              label="Bottom Screen"
-              description="Run Plasma Mobile on the second display"
+              label={t("Bottom Screen")}
+              description={t("Run Plasma Mobile on the second display")}
               value={!!config.bottomScreenEnabled}
               onChange={setBottomScreenEnabled}
             />
             {config.bottomScreenBrightnessSupported && config.bottomScreenActive && (
               <SliderEdit
-                label="Bottom Screen Brightness"
+                label={t("Bottom Screen Brightness")}
                 value={config.bottomScreenBrightness}
                 min={0}
                 max={100}
@@ -202,21 +207,21 @@ export function Settings({ config, setConfig }: {
         )}
         {(config.desktopModes?.length || 0) > 1 && (
           <SelectEdit
-            label="Desktop Mode"
+            label={t("Desktop Mode")}
             value={config.desktopMode || "desktop"}
-            options={config.desktopModes || []}
+            options={translatedOptions(config.desktopModes)}
             onChange={setDesktopMode}
           />
         )}
         <ToggleRow
-          label="USB File Transfer"
+          label={t("USB File Transfer")}
           description={config.mtpEnabled ? "Enabled until shutdown" : undefined}
           value={!!config.mtpEnabled}
           onChange={setMtpEnabled}
         />
         <ToggleRow
-          label="Automatic ABL Updates"
-          description="Updates during shutdown"
+          label={t("Automatic ABL Updates")}
+          description={t("Updates during shutdown")}
           value={!!config.ablAutoEnabled}
           onChange={setAblAutoEnabled}
         />

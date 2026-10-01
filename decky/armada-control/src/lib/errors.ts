@@ -13,6 +13,8 @@
 // clean backend message through unchanged, and replaces anything that looks
 // like backend/loader noise with a generic, still-actionable fallback.
 
+import { t } from "../i18n";
+
 const NOISE_PATTERNS: RegExp[] = [
   // Decky loader's own generic placeholder when it can't forward a real message.
   /^python exception$/i,
@@ -22,11 +24,13 @@ const NOISE_PATTERNS: RegExp[] = [
   /^[A-Za-z_][A-Za-z0-9_.]*Error(\(.*\))?$/,
 ];
 
-export function friendlyError(error: unknown, fallback = "Something went wrong. Try again."): string {
+export function friendlyError(error: unknown, fallback = t("Something went wrong. Try again.")): string {
   const raw = (error instanceof Error ? error.message : String(error ?? "")).trim();
   if (!raw) return fallback;
   if (NOISE_PATTERNS.some((pattern) => pattern.test(raw))) return fallback;
   // Keep only the first line -- a multi-line message is traceback noise that
-  // leaked through, not something a toast should render.
-  return raw.split("\n")[0].trim() || fallback;
+  // leaked through, not something a toast should render. Known backend
+  // messages are translated; anything else is shown as the backend wrote it.
+  const line = raw.split("\n")[0].trim();
+  return line ? t(line) : fallback;
 }

@@ -12,13 +12,14 @@ import { useFanCurvesSave } from "../hooks/useFanCurvesSave";
 import { friendlyError } from "../lib/errors";
 import { clone } from "../lib/util";
 import type { Config, CurvesState } from "../types";
+import { t } from "../i18n";
 
 export function Fans({ setConfig }: {
   setConfig: Dispatch<SetStateAction<Config | null>>;
 }) {
   const [saved, setSaved] = useState<CurvesState | null>(null);
   const [draft, setDraft] = useState<CurvesState | null>(null);
-  const [message, setMessage] = useState("Loading");
+  const [message, setMessage] = useState(t("Loading"));
   const [selectedCurve, setSelectedCurve] = useState("");
   const currentTemp = useCurrentTemp();
 
@@ -31,7 +32,7 @@ export function Fans({ setConfig }: {
       const activeCurve = next.profiles?.[next.activeProfile]?.fan_curve;
       setSelectedCurve(activeCurve && names.includes(activeCurve) ? activeCurve : names[0] || "");
     } catch (error) {
-      setMessage(friendlyError(error, "Could not load fan curves"));
+      setMessage(friendlyError(error, t("Could not load fan curves")));
     }
   }, []);
   useEffect(() => {
@@ -66,7 +67,7 @@ export function Fans({ setConfig }: {
       setDraft((current) => (current ? { ...current, batteryFanEnabled: next.batteryFanEnabled } : current));
     } catch (error) {
       setDraft((current) => (current ? { ...current, batteryFanEnabled: !enabled } : current));
-      toaster.toast({ title: "Could not change battery fan floor", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not change battery fan floor"), body: friendlyError(error) });
     } finally {
       setBatteryFanUpdating(false);
     }
@@ -74,7 +75,7 @@ export function Fans({ setConfig }: {
 
   if (!draft) {
     return (
-      <PanelSection title="Armada Fans">
+      <PanelSection title={t("Armada Fans")}>
         <Field label={message} />
       </PanelSection>
     );
@@ -116,31 +117,29 @@ export function Fans({ setConfig }: {
         onOpenCreateCurve={openCreateCurve}
         currentTemp={currentTemp}
       />
-      <PanelSection title="BATTERY FAN FLOOR">
+      <PanelSection title={t("BATTERY FAN FLOOR")}>
         <ToggleRow
-          label="Floor the fan by battery temperature"
-          description="Keeps the fan running (with a boost while charging) even if CPU/GPU are cool, so a hot battery under fast charging still gets airflow. Off restores the stock behaviour."
+          label={t("Floor the fan by battery temperature")}
+          description={t("Keeps the fan running (with a boost while charging) even if CPU/GPU are cool, so a hot battery under fast charging still gets airflow. Off restores the stock behaviour.")}
           value={draft.batteryFanEnabled}
           disabled={batteryFanUpdating}
           onChange={toggleBatteryFan}
         />
       </PanelSection>
-      <PanelSection title="SAVE">
+      <PanelSection title={t("SAVE")}>
         <PanelSectionRow>
           <div className="afc-control-inset">
             <ButtonItem layout="below" onClick={handleSave} disabled={!dirty || saving}>
-              {saving ? "Saving..." : "Save Changes"}
+              {saving ? t("Saving...") : t("Save Changes")}
             </ButtonItem>
           </div>
         </PanelSectionRow>
         <PanelSectionRow>
           <div className="afc-control-inset">
-            <ButtonItem layout="below" onClick={handleRevert} disabled={!dirty || saving}>
-              Revert Changes
-            </ButtonItem>
+            <ButtonItem layout="below" onClick={handleRevert} disabled={!dirty || saving}>{t("Revert Changes")}</ButtonItem>
           </div>
         </PanelSectionRow>
-        {dirty ? <div className="afc-note">You have unsaved changes.</div> : null}
+        {dirty ? <div className="afc-note">{t("You have unsaved changes.")}</div> : null}
       </PanelSection>
     </div>
   );

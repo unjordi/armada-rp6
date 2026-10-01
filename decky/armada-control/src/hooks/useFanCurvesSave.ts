@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { clone } from "../lib/util";
+import { t } from "../i18n";
 import { friendlyError } from "../lib/errors";
 import type { CurvesState, FanCurve, FanSettings } from "../types";
 
@@ -29,7 +30,7 @@ export function useFanCurvesSave({ working, saved, setSaved, setWorking, save, o
       setSaved(next);
       onSaved?.(next);
     } catch (error) {
-      setSaveError(friendlyError(error, "Could not save fan curves"));
+      setSaveError(friendlyError(error, t("Could not save fan curves")));
     } finally {
       setSaving(false);
     }

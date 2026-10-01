@@ -12,6 +12,7 @@ import { friendlyError } from "../lib/errors";
 import { displayedEffect, EFFECT_OPTIONS, USES_BASE_COLOR, USES_SPEED } from "../lib/rgbEffects";
 import type { RgbConfig, RgbEffect } from "../types";
 import { SelectEdit, SliderEdit, ToggleRow } from "./widgets";
+import { t } from "../i18n";
 
 const UPDATE_INTERVAL_MS: number = 100;
 
@@ -70,7 +71,7 @@ export function RgbLighting() {
       savedConfig.current = JSON.stringify(next);
       setConfig(next);
     } catch (error) {
-      toaster.toast({ title: "Could not load RGB lighting", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not load RGB lighting"), body: friendlyError(error) });
     }
   }, []);
 
@@ -79,7 +80,7 @@ export function RgbLighting() {
       const next = await getRgbChargeIndicatorEnabled();
       setChargeIndicatorEnabled(next.enabled);
     } catch (error) {
-      toaster.toast({ title: "Could not load charging indicator setting", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not load charging indicator setting"), body: friendlyError(error) });
     }
   }, []);
 
@@ -107,7 +108,7 @@ export function RgbLighting() {
         );
         savedConfig.current = current;
       } catch (error) {
-        toaster.toast({ title: "Could not change RGB lighting", body: friendlyError(error) });
+        toaster.toast({ title: t("Could not change RGB lighting"), body: friendlyError(error) });
         load();
       }
     }, delay);
@@ -133,7 +134,7 @@ export function RgbLighting() {
       const reverted: RgbConfig = { ...config, sync_brightness: !enabled };
       savedConfig.current = JSON.stringify(reverted);
       setConfig(reverted);
-      toaster.toast({ title: "Could not change brightness sync", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not change brightness sync"), body: friendlyError(error) });
     } finally {
       setSyncBrightnessUpdating(false);
     }
@@ -147,7 +148,7 @@ export function RgbLighting() {
       setChargeIndicatorEnabled(next.enabled);
     } catch (error) {
       setChargeIndicatorEnabled(!enabled);
-      toaster.toast({ title: "Could not change charging indicator setting", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not change charging indicator setting"), body: friendlyError(error) });
     } finally {
       setChargeIndicatorUpdating(false);
     }
@@ -168,21 +169,21 @@ export function RgbLighting() {
 
   return (
     <>
-      <PanelSection title="RGB Lighting">
+      <PanelSection title={t("RGB Lighting")}>
         <ToggleRow
-          label="Enabled"
+          label={t("Enabled")}
           value={config.enabled}
           onChange={(enabled: boolean) => setConfig({ ...config, enabled })}
         />
         <SelectEdit
-          label="Effect"
+          label={t("Effect")}
           value={effect}
-          options={EFFECT_OPTIONS}
+          options={EFFECT_OPTIONS.map((option) => ({ ...option, label: t(option.label) }))}
           disabled={!config.enabled}
           onChange={(next: RgbEffect) => setConfig({ ...config, effect: next })}
         />
         <SliderEdit
-          label="Brightness"
+          label={t("Brightness")}
           value={config.brightness}
           min={0}
           max={100}
@@ -192,7 +193,7 @@ export function RgbLighting() {
         />
         {USES_SPEED.includes(effect) && (
           <SliderEdit
-            label="Speed"
+            label={t("Speed")}
             value={speed}
             min={10}
             max={400}
@@ -203,7 +204,7 @@ export function RgbLighting() {
           />
         )}
         <SliderEdit
-          label="Color"
+          label={t("Color")}
           value={colorHue(config.color)}
           min={0}
           max={359}
@@ -215,17 +216,17 @@ export function RgbLighting() {
         />
         {/* armada#23: orthogonal to Effect -- combines with any of them. */}
         <ToggleRow
-          label="Sync w/ screen brightness"
-          description="Scales the lighting's brightness to the panel backlight, on top of whatever effect/color is set above. Disables the Brightness slider while on."
+          label={t("Sync w/ screen brightness")}
+          description={t("Scales the lighting's brightness to the panel backlight, on top of whatever effect/color is set above. Disables the Brightness slider while on.")}
           value={syncBrightness}
           disabled={!config.enabled || syncBrightnessUpdating}
           onChange={toggleSyncBrightness}
         />
       </PanelSection>
-      <PanelSection title="Charging Indicator">
+      <PanelSection title={t("Charging Indicator")}>
         <ToggleRow
-          label="Show charging status while asleep"
-          description="While it sleeps and charges, the stick LEDs glow amber (green once full) so you can tell it's charging at a glance."
+          label={t("Show charging status while asleep")}
+          description={t("While it sleeps and charges, the stick LEDs glow amber (green once full) so you can tell it's charging at a glance.")}
           value={chargeIndicatorEnabled}
           disabled={chargeIndicatorUpdating}
           onChange={toggleChargeIndicator}
