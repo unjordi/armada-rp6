@@ -59,6 +59,10 @@ WORKDIR /build/armada-control
 COPY decky/armada-control/package.json decky/armada-control/package-lock.json ./
 RUN npm ci
 COPY decky/armada-control/ ./
+# test/i18n.test.ts resolves paths from the repo root (/ here): mirror the repo layout it reads.
+COPY system_files/usr/share/armada/power-profiles.conf system_files/usr/share/armada/fex-profiles.json /system_files/usr/share/armada/
+COPY system_files/usr/libexec/armada/armada-control /system_files/usr/libexec/armada/
+RUN mkdir -p /decky && ln -s /build/armada-control /decky/armada-control
 RUN npm test && npm run build
 WORKDIR /build/armada-store
 COPY decky/armada-store/package.json decky/armada-store/package-lock.json ./
