@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - staging
+      - develop
   push:
     branches:
       - main
       - staging
+      - develop
   workflow_dispatch:
 
 env:
@@ -60,6 +62,8 @@ jobs:
           branch="${BUILD_REF#refs/heads/}"
           case "${branch}" in
             main) tag=testing; channel=preview ;;
+            # RP6 fork: develop publishes the :latest that devices track (OTA).
+            develop) tag=latest; channel="" ;;
             staging) tag=staging; channel=staging ;;
             testing|preview|beta|stable|latest)
               echo "::error::Reserved release channel. Build main/staging or use Promote channel."
@@ -113,6 +117,7 @@ jobs:
         with:
           tags: |
             type=raw,value=${{ steps.channel.outputs.tag }},enable=${{ github.event_name != 'pull_request' }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/develop' }}
             type=sha,enable=${{ github.event_name == 'pull_request' }}
             type=ref,event=pr
           labels: |
@@ -150,6 +155,24 @@ jobs:
           echo "base_image=${base_image}" >> "${GITHUB_OUTPUT}"
           echo "config=${config}" >> "${GITHUB_OUTPUT}"
 
+      - name: Resolve RP6 package pins
+        id: rp6_pkgs
+        # Use the packages armada-packages-rp6 publishes from develop when they
+        # exist; otherwise keep the digest pinned in the Containerfile.
+        run: |
+          set -euo pipefail
+          for arg in KERNEL_PKG ARMADA_RGB_PKG; do
+            pin=$(grep -m1 "^ARG ${arg}=" Containerfile | cut -d= -f2-)
+            repo="${pin%@*}"
+            if d=$(skopeo inspect --override-arch arm64 --format '{{.Digest}}' "docker://${repo}:develop" 2>/dev/null); then
+              pin="${repo}@${d}"
+            else
+              echo "::notice::[CI] ${repo}:develop not found; using the Containerfile pin."
+            fi
+            echo "${arg}=${pin}" | tee -a "${GITHUB_OUTPUT}"
+            echo "- ${arg}: ${pin}" >> "${GITHUB_STEP_SUMMARY}"
+          done
+
       - name: Require native OverlayFS
         run: |
           set -euxo pipefail
@@ -169,6 +192,8 @@ jobs:
             ARMADA_VERSION=${{ steps.version.outputs.version }}
             BASE_IMAGE=${{ steps.chunkah_config.outputs.base_image }}
             CHUNKAH_CONFIG_STR=${{ steps.chunkah_config.outputs.config }}
+            KERNEL_PKG=${{ steps.rp6_pkgs.outputs.KERNEL_PKG }}
+            ARMADA_RGB_PKG=${{ steps.rp6_pkgs.outputs.ARMADA_RGB_PKG }}
           # armada-rootfs is consumed through RUN --mount, so retain otherwise-unused stages.
           extra-args: |
             --skip-unused-stages=false
