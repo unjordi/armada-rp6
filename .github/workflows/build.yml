@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - staging
+      - develop
   push:
     branches:
       - main
       - staging
+      - develop
   workflow_dispatch:
 
 env:
@@ -60,6 +62,8 @@ jobs:
           branch="${BUILD_REF#refs/heads/}"
           case "${branch}" in
             main) tag=testing; channel=preview ;;
+            # RP6 fork: develop publishes the :latest that devices track (OTA).
+            develop) tag=latest; channel="" ;;
             staging) tag=staging; channel=staging ;;
             testing|preview|beta|stable|latest)
               echo "::error::Reserved release channel. Build main/staging or use Promote channel."
@@ -113,6 +117,7 @@ jobs:
         with:
           tags: |
             type=raw,value=${{ steps.channel.outputs.tag }},enable=${{ github.event_name != 'pull_request' }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/develop' }}
             type=sha,enable=${{ github.event_name == 'pull_request' }}
             type=ref,event=pr
           labels: |
@@ -150,6 +155,37 @@ jobs:
           echo "base_image=${base_image}" >> "${GITHUB_OUTPUT}"
           echo "config=${config}" >> "${GITHUB_OUTPUT}"
 
+      - name: Log in to ghcr for the RP6 packages
+        # armada-packages-rp6/{kernel,armada-rgb} are private; buildah and skopeo
+        # share this auth file for the pulls below.
+        env:
+          RP6_CI_TOKEN: ${{ secrets.RP6_CI_TOKEN }}
+        run: |
+          if [ -z "${RP6_CI_TOKEN}" ]; then
+            echo "::warning::[CI] RP6_CI_TOKEN is not set; private RP6 packages will fail to pull."
+            exit 0
+          fi
+          echo "${RP6_CI_TOKEN}" | buildah login -u "${{ github.repository_owner }}" --password-stdin ghcr.io
+
+      - name: Resolve RP6 package pins
+        id: rp6_pkgs
+        # Use the packages armada-packages-rp6 publishes from develop when they
+        # exist (kernel, armada-rgb, gamescope); otherwise keep the Containerfile pin.
+        run: |
+          set -euo pipefail
+          for entry in KERNEL_PKG:kernel ARMADA_RGB_PKG:armada-rgb GAMESCOPE_PKG:gamescope; do
+            arg="${entry%%:*}"
+            repo="ghcr.io/${{ github.repository_owner }}/armada-packages-rp6/${entry#*:}"
+            pin=$(grep -m1 "^ARG ${arg}=" Containerfile | cut -d= -f2-)
+            if d=$(skopeo inspect --override-arch arm64 --format '{{.Digest}}' "docker://${repo}:develop" 2>/dev/null); then
+              pin="${repo}@${d}"
+            else
+              echo "::notice::[CI] ${repo}:develop not found; using the Containerfile pin."
+            fi
+            echo "${arg}=${pin}" | tee -a "${GITHUB_OUTPUT}"
+            echo "- ${arg}: ${pin}" >> "${GITHUB_STEP_SUMMARY}"
+          done
+
       - name: Require native OverlayFS
         run: |
           set -euxo pipefail
@@ -169,6 +205,9 @@ jobs:
             ARMADA_VERSION=${{ steps.version.outputs.version }}
             BASE_IMAGE=${{ steps.chunkah_config.outputs.base_image }}
             CHUNKAH_CONFIG_STR=${{ steps.chunkah_config.outputs.config }}
+            KERNEL_PKG=${{ steps.rp6_pkgs.outputs.KERNEL_PKG }}
+            ARMADA_RGB_PKG=${{ steps.rp6_pkgs.outputs.ARMADA_RGB_PKG }}
+            GAMESCOPE_PKG=${{ steps.rp6_pkgs.outputs.GAMESCOPE_PKG }}
           # armada-rootfs is consumed through RUN --mount, so retain otherwise-unused stages.
           extra-args: |
             --skip-unused-stages=false
@@ -229,7 +268,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           set -euxo pipefail
-          echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE_FULL="${IMAGE_REGISTRY}/${IMAGE_NAME}"
           BUILD_TAG="build-${{ steps.version.outputs.version }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           n=0
@@ -255,7 +294,7 @@ jobs:
           IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
           IMAGE_REF="${IMAGE_FULL}@${{ steps.push.outputs.digest }}"
           # Cosign and Skopeo use separate registry auth stores.
-          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           # Sign the digest, not a tag (a concurrent run could re-point the tag).
           # --new-bundle-format=false: bootc's verifier expects the legacy .sig; the
           # default flips in cosign v3.
