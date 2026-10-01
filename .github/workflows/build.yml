@@ -155,6 +155,18 @@ jobs:
           echo "base_image=${base_image}" >> "${GITHUB_OUTPUT}"
           echo "config=${config}" >> "${GITHUB_OUTPUT}"
 
+      - name: Log in to ghcr for the RP6 packages
+        # armada-packages-rp6/{kernel,armada-rgb} are private; buildah and skopeo
+        # share this auth file for the pulls below.
+        env:
+          RP6_CI_TOKEN: ${{ secrets.RP6_CI_TOKEN }}
+        run: |
+          if [ -z "${RP6_CI_TOKEN}" ]; then
+            echo "::warning::[CI] RP6_CI_TOKEN is not set; private RP6 packages will fail to pull."
+            exit 0
+          fi
+          echo "${RP6_CI_TOKEN}" | buildah login -u "${{ github.repository_owner }}" --password-stdin ghcr.io
+
       - name: Resolve RP6 package pins
         id: rp6_pkgs
         # Use the packages armada-packages-rp6 publishes from develop when they
