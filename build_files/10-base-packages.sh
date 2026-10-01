@@ -98,9 +98,12 @@ ln -sf libz.so.1 /usr/lib64/libz.so
 # pressure-vessel needs en_US.UTF-8; the base image ships only minimal-langpack (C.utf8).
 dnf5 -y install --setopt=install_weak_deps=False glibc-langpack-en
 
+# Locale pruning (🟢, ~380M): dejar solo es* y en* (más C) en /usr/share/locale y /usr/lib/locale.
+find /usr/share/locale -maxdepth 1 -type d ! -name 'es*' ! -name 'en*' ! -name 'C*' ! -name 'locale' -exec rm -rf {} + 2>/dev/null || true
+find /usr/lib/locale -maxdepth 1 -type d ! -name 'es*' ! -name 'en*' ! -name 'C*' ! -name 'locale' -exec rm -rf {} + 2>/dev/null || true
+
 dnf5 -y install --setopt=install_weak_deps=False \
     google-noto-sans-vf-fonts \
-    google-noto-sans-cjk-fonts \
     google-noto-sans-thai-vf-fonts \
     google-noto-sans-arabic-vf-fonts \
     google-noto-sans-hebrew-vf-fonts \
