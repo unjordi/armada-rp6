@@ -1,0 +1,3 @@
+[services][org.kde.spectacle.desktop]
+# F13 is a key no other binding uses, so Steam Input can map R1 to it for desktop-mode screenshots.
+FullScreenScreenShot=Shift+Print	F13

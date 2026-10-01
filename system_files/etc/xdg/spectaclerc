@@ -1,0 +1,5 @@
+[General]
+autoSaveImage=true
+
+[ImageSave]
+imageSaveLocation=file:///var/home/armada/juegos/screensHots
