@@ -266,7 +266,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           set -euxo pipefail
-          echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE_FULL="${IMAGE_REGISTRY}/${IMAGE_NAME}"
           BUILD_TAG="build-${{ steps.version.outputs.version }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           n=0
@@ -292,7 +292,7 @@ jobs:
           IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
           IMAGE_REF="${IMAGE_FULL}@${{ steps.push.outputs.digest }}"
           # Cosign and Skopeo use separate registry auth stores.
-          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           # Sign the digest, not a tag (a concurrent run could re-point the tag).
           # --new-bundle-format=false: bootc's verifier expects the legacy .sig; the
           # default flips in cosign v3.
