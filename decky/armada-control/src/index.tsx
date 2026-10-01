@@ -2,7 +2,7 @@ import { definePlugin } from "@decky/api";
 import { getCompatApplied, getConfig, getInstalledGames, saveCompatApplied } from "./backend";
 import { ActiveProfileBadge } from "./components/ActiveProfileBadge";
 import { Content } from "./Content";
-import { installTopBarProfileIndicator } from "./lib/topBarProfileIndicator";
+import { installTopBarProfileIndicator, setTopBarIndicatorGeometry } from "./lib/topBarProfileIndicator";
 import {
   configureCompatPolicy,
   defaultWindowsCompatTool,
@@ -31,6 +31,7 @@ export default definePlugin(() => {
     .catch(() => ({ state: { appids: [] as string[], protonDefault: "" }, loaded: false }));
   Promise.all([getConfig(), getInstalledGames(), handledRequest])
     .then(async ([config, games, handled]) => {
+      setTopBarIndicatorGeometry(config.topBarIndicator);
       await (window as any).App.WaitForServicesInitialized();
       if (cancelled) return;
       const explicitTool = config.tweaks?.global?.windowsCompatTool;

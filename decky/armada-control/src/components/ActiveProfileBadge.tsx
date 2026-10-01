@@ -1,4 +1,5 @@
 import { useActivePowerProfile } from "../hooks/useActivePowerProfile";
+import { t, tLabel } from "../i18n";
 import { titleCase } from "../lib/util";
 
 const PROFILE_ICON: Record<string, string> = {
@@ -31,7 +32,7 @@ export function ActiveProfileBadge() {
   if (!active) return null;
   const icon = PROFILE_ICON[active];
   return (
-    <span title={`Power profile: ${titleCase(active)}`}>
+    <span title={t("Power profile: {profile}", { profile: tLabel(titleCase(active)) })}>
       Armada Control{icon ? ` ${icon}` : ""}
     </span>
   );

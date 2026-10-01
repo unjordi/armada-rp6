@@ -127,6 +127,8 @@ export interface Config {
   fexProfiles: Record<string, FexProfile>;
   perf?: PerfInfo;
   cpuDeviceClass: string;
+  // Top-bar profile glyph geometry from the device conf; empty when unset.
+  topBarIndicator?: { sizePx: string; marginPx: string };
   rgbSupported: boolean;
   protonDefaults: string[];
   osVersion: string;

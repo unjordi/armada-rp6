@@ -1,5 +1,6 @@
 import { Dropdown, Field, PanelSectionRow, SliderField, ToggleField } from "@decky/ui";
 import type { ReactNode } from "react";
+import { t } from "../i18n";
 import type { DropdownChoice } from "../types";
 
 type Option = string | DropdownChoice;
@@ -25,7 +26,7 @@ export function SelectEdit({ label, value, options, onChange, disabled, placehol
     const choice = typeof option === "string" ? { data: option, label: option } : option;
     if (choice.disabled) {
       disabledData.add(choice.data);
-      return { ...choice, label: `${choice.label} (unavailable)` };
+      return { ...choice, label: `${choice.label} (${t("unavailable")})` };
     }
     return choice;
   });

@@ -2,6 +2,7 @@ import { Field, PanelSection, Tabs } from "@decky/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { getConfig, getInstalledGames, savePowerConfig, saveTweaks } from "./backend";
+import { t } from "./i18n";
 import { RgbLighting } from "./components/RgbLighting";
 import { useDebouncedSave } from "./hooks/useDebouncedSave";
 import { tabIcons } from "./icons";
@@ -14,10 +15,13 @@ import { Power } from "./tabs/Power";
 import { Settings } from "./tabs/Settings";
 import type { Config } from "./types";
 
+// The product name is not translated.
+const PLUGIN_NAME = "Armada Control";
+
 export function Content() {
   const [tab, setTab] = useState("Compatibility");
   const [config, setConfig] = useState<Config | null>(null);
-  const [message, setMessage] = useState("Loading");
+  const [message, setMessage] = useState(t("Loading"));
   const savedPowerSnapshot = useRef("");
   const savedTweaksSnapshot = useRef("");
   const installedGamesRequested = useRef(false);
@@ -30,7 +34,7 @@ export function Content() {
       savedTweaksSnapshot.current = JSON.stringify(next.tweaks);
       setConfig((current) => ({ ...next, installedGames: current?.installedGames || next.installedGames }));
     } catch (error) {
-      setMessage(friendlyError(error, "Could not load Armada Control"));
+      setMessage(friendlyError(error, t("Could not load Armada Control")));
     }
   }, []);
   useEffect(() => {
@@ -78,7 +82,7 @@ export function Content() {
   }, [!!config]);
   useDebouncedSave({ config, field: "power", snapshot: savedPowerSnapshot, save: savePowerConfig, setConfig, onError: load });
   useDebouncedSave({ config, field: "tweaks", snapshot: savedTweaksSnapshot, save: saveTweaks, setConfig, onError: load });
-  if (!config) return <PanelSection title="Armada Control"><Field label={message} /></PanelSection>;
+  if (!config) return <PanelSection title={PLUGIN_NAME}><Field label={message} /></PanelSection>;
   const tabContent = (content: ReactNode) => (
     <div className="armada-control-tab-content">{content}</div>
   );

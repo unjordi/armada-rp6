@@ -7,13 +7,14 @@ import { setActivePowerProfile } from "../backend";
 import { useActivePowerProfile } from "../hooks/useActivePowerProfile";
 import { friendlyError } from "../lib/errors";
 import { clone, titleCase, update } from "../lib/util";
+import { t, tLabel } from "../i18n";
 import type { Config, PowerProfile } from "../types";
 
-const underclocks = [
-  { data: "none", label: "None" },
-  { data: "small", label: "Small" },
-  { data: "medium", label: "Medium" },
-  { data: "large", label: "Large" },
+const underclocks = () => [
+  { data: "none", label: t("None") },
+  { data: "small", label: t("Small") },
+  { data: "medium", label: t("Medium") },
+  { data: "large", label: t("Large") },
 ];
 
 export function Power({ config, setConfig }: { config: Config; setConfig: Dispatch<SetStateAction<Config | null>> }) {
@@ -30,11 +31,11 @@ export function Power({ config, setConfig }: { config: Config; setConfig: Dispat
   const p = config.power.profiles[profile] || ({} as PowerProfile);
   const profiles = Object.entries(config.power.profiles || {}).map(([name, profile]) => ({
     data: name,
-    label: (profile.label || titleCase(name)) + (name === activeProfile ? " • Active" : ""),
+    label: tLabel(profile.label || titleCase(name)) + (name === activeProfile ? ` • ${t("Active")}` : ""),
   }));
   const fanCurves = Object.entries(config.power.fan_curves || {}).map(([name, curve]) => ({
     data: name,
-    label: curve.label || titleCase(name),
+    label: tLabel(curve.label || titleCase(name)),
   }));
   const setProfileValue = (name: string, value: any) => {
     setConfig((current) => (current ? update(current, ["power", "profiles", profile, name], value) : current));
@@ -65,55 +66,53 @@ export function Power({ config, setConfig }: { config: Config; setConfig: Dispat
       const next = await setActivePowerProfile(profile);
       setConfig((current) => (current ? { ...current, activePowerProfile: next.activePowerProfile } : current));
     } catch (error) {
-      toaster.toast({ title: "Could not switch power profile", body: friendlyError(error) });
+      toaster.toast({ title: t("Could not switch power profile"), body: friendlyError(error) });
     } finally {
       setActivating(false);
     }
   };
-  const activeLabel = config.power.profiles[activeProfile]?.label || titleCase(activeProfile || "");
-  const editingLabel = p.label || titleCase(profile);
+  const activeLabel = tLabel(config.power.profiles[activeProfile]?.label || titleCase(activeProfile || ""));
+  const editingLabel = tLabel(p.label || titleCase(profile));
   const underclockLevel = p.cpu_underclock || "";
   const supportsUnderclockPresets = !!config.power.underclocks?.[config.cpuDeviceClass];
   return (
     <>
-      <PanelSection title="ACTIVE PROFILE">
-        <Field label="Running now" bottomSeparator="none">
+      <PanelSection title={t("ACTIVE PROFILE")}>
+        <Field label={t("Running now")} bottomSeparator="none">
           {activeLabel}
         </Field>
         {profile !== activeProfile ? (
           <div className="armada-reset-row">
             <ButtonItem layout="below" onClick={activateProfile} disabled={activating}>
-              {activating ? "Activating..." : `Make "${editingLabel}" active`}
+              {activating ? t("Activating...") : t("Make \"{profile}\" active", { profile: editingLabel })}
             </ButtonItem>
           </div>
         ) : (
-          <div className="armada-field-note">
-            You're editing the profile that's active right now -- changes below apply live once saved.
-          </div>
+          <div className="armada-field-note">{t("You're editing the profile that's active right now -- changes below apply live once saved.")}</div>
         )}
       </PanelSection>
-      <PanelSection title="EDIT POWER PROFILE">
+      <PanelSection title={t("EDIT POWER PROFILE")}>
         <SelectEdit value={profile} options={profiles} onChange={setProfile} />
       </PanelSection>
-      <PanelSection title="PROFILE SETTINGS">
-        <SelectEdit label="Fan Curve" value={p.fan_curve} options={fanCurves} onChange={(v) => setProfileValue("fan_curve", v)} />
+      <PanelSection title={t("PROFILE SETTINGS")}>
+        <SelectEdit label={t("Fan Curve")} value={p.fan_curve} options={fanCurves} onChange={(v) => setProfileValue("fan_curve", v)} />
         {(config.perf?.governors?.length ?? 0) > 0 ? (
           <SelectEdit
-            label="CPU Governor"
+            label={t("CPU Governor")}
             value={p.cpu_governor}
             options={config.perf!.governors.map((g) => ({ data: g, label: titleCase(g) }))}
             onChange={(v) => setProfileValue("cpu_governor", v)}
           />
         ) : null}
         {supportsUnderclockPresets ? (
-          <SelectEdit label="CPU Underclock" value={underclockLevel} options={underclocks} onChange={(v) => setProfileValue("cpu_underclock", v)} />
+          <SelectEdit label={t("CPU Underclock")} value={underclockLevel} options={underclocks()} onChange={(v) => setProfileValue("cpu_underclock", v)} />
         ) : (
-          <SliderEdit label="CPU Max (%)" value={Math.round(Number(p.cpu_max || 0) * 100)} min={35} max={100} step={1} onChange={(v) => setProfileValue("cpu_max", (v / 100).toFixed(2))} />
+          <SliderEdit label={t("CPU Max (%)")} value={Math.round(Number(p.cpu_max || 0) * 100)} min={35} max={100} step={1} onChange={(v) => setProfileValue("cpu_max", (v / 100).toFixed(2))} />
         )}
-        <SliderEdit label="GPU Min (%)" value={Math.round(Number(p.gpu_min || 0) * 100)} min={0} max={100} step={1} onChange={(v) => setGpuValue("gpu_min", (v / 100).toFixed(2))} />
-        <SliderEdit label="GPU Max (%)" value={Math.round(Number(p.gpu_max || 0) * 100)} min={35} max={100} step={1} onChange={(v) => setGpuValue("gpu_max", (v / 100).toFixed(2))} />
+        <SliderEdit label={t("GPU Min (%)")} value={Math.round(Number(p.gpu_min || 0) * 100)} min={0} max={100} step={1} onChange={(v) => setGpuValue("gpu_min", (v / 100).toFixed(2))} />
+        <SliderEdit label={t("GPU Max (%)")} value={Math.round(Number(p.gpu_max || 0) * 100)} min={35} max={100} step={1} onChange={(v) => setGpuValue("gpu_max", (v / 100).toFixed(2))} />
         <div className="armada-reset-row">
-          <ButtonItem layout="below" onClick={resetProfile}>Reset to Default</ButtonItem>
+          <ButtonItem layout="below" onClick={resetProfile}>{t("Reset to Default")}</ButtonItem>
         </div>
       </PanelSection>
     </>
