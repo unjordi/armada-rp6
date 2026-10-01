@@ -150,3 +150,13 @@ for pkg in \
         echo "  slim: SALTO $pkg — requerido por: $req"
     fi
 done
+
+# Final guard: the removals above go through dnf, which also drops anything that
+# depends on a removed package. Fail the build if that took out something the RP6
+# needs to boot, sleep, connect or play.
+for required in qcom-firmware atheros-firmware bootc podman skopeo dracut \
+    mesa-vulkan-drivers mesa-dri-drivers NetworkManager NetworkManager-wifi \
+    pipewire wireplumber bluez plasma-workspace kwin sddm flatpak \
+    gamescope-session inputplumber powerdevil fex-emu armada-rgb spectacle; do
+    rpm -q "$required" >/dev/null || { echo "[70-cleanup] ERROR: $required was removed by the slim pass"; exit 1; }
+done
