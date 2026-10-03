@@ -8,12 +8,9 @@ from .fan_sensors import get_current_temp
 from . import power
 
 # Shared with Armada Control: only owns [fan_curve.*] sections, [fan]'s
-# ramp/smoothing/min_pwm keys, and [battery_fan]'s "enabled" toggle (armada#29
-# -- the curve/boost themselves stay factory-only; this just gates
-# armada-powerd's battery-temperature fan floor on/off, opt-in per Jordi
-# ("no todos lo quieren"), default tracks the factory value so a fresh
-# install/reset keeps today's behaviour). Forces min_pwm to 0 when any curve's
-# fan-stopped.
+# ramp/smoothing/min_pwm/charging_pwm keys, and [battery_fan]'s "enabled"
+# toggle (the battery-temperature floor curve itself stays factory-only).
+# Forces min_pwm to 0 when any curve's fan-stopped.
 POWER_CONFIG = Path("/etc/armada/power-profiles.conf")
 FACTORY_POWER_CONFIG = Path("/usr/share/armada/power-profiles.conf")
 PROFILE_NAMES = ("eco", "balanced", "performance")
@@ -119,7 +116,7 @@ def _curve_has_fan_stop(curve_string):
 
 def _read_active_profile(merged, profiles):
     # Single source of truth for the live profile: delegate to power.active_profile
-    # (same read the Power tab uses, armada#24) so the Fans and Power tabs can't
+    # (same read the Power tab uses) so the Fans and Power tabs can't
     # diverge. Only if that can't be read do we fall back to the configured
     # default, then any profile.
     active = power.active_profile(profiles)
@@ -275,6 +272,20 @@ def render_all(fan_curves, fan_settings):
         return f.read()
 
 
+def save_charging_pwm(pwm):
+    pwm = int(pwm)
+    if not (MIN_PWM <= pwm <= MAX_PWM):
+        raise ValueError(f"charging_pwm out of range: {pwm}")
+    parser = _read(POWER_CONFIG)
+    factory = _read(FACTORY_POWER_CONFIG).getint("fan", "charging_pwm", fallback=0)
+    set_or_clear(parser, "fan", "charging_pwm", pwm, pwm != factory)
+    with tempfile.TemporaryFile("w+", encoding="utf-8") as f:
+        parser.write(f)
+        f.seek(0)
+        call("write_config", name="power", text=f.read())
+    return pwm
+
+
 def render_battery_fan_enabled(enabled):
     factory_enabled = _parse_battery_fan_enabled(_read(FACTORY_POWER_CONFIG))
 
@@ -300,9 +311,7 @@ def set_battery_fan_enabled(enabled):
         raise ValueError("invalid battery fan enabled state")
     rendered = render_battery_fan_enabled(enabled)
     call("write_config", name="power", text=rendered)
-    # armada-powerd only re-reads config on "reload" (same trigger
-    # action_write_config already fires for every "power" write; see
-    # system_files/usr/libexec/armada/armada-control's action_write_config).
+    # action_write_config reloads armada-powerd after every "power" write.
     return get_state()
 
 

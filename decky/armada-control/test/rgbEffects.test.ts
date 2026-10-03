@@ -9,14 +9,14 @@ import {
   USES_SPEED,
 } from "../src/lib/rgbEffects.ts";
 
-test("screen_sync is offered in the dropdown (armada#27 re-enable)", () => {
+test("screen_sync is offered in the dropdown", () => {
   assert.ok(
     EFFECT_OPTIONS.some((option) => option.data === "screen_sync"),
     "screen_sync must be a selectable effect",
   );
 });
 
-test("a persisted screen_sync is shown as itself, not 'Static' (dropdown-lie fix)", () => {
+test("a persisted screen_sync is shown as itself, not 'Static'", () => {
   assert.equal(displayedEffect("screen_sync"), "screen_sync");
 });
 

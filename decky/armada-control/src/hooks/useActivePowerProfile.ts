@@ -3,11 +3,9 @@ import { getActivePowerProfile } from "../backend";
 
 const POLL_INTERVAL_MS = 3000;
 
-// armada#24: polls the LIVE active power profile so the Power tab stays
-// correct if it's changed from elsewhere (Steam's native "Rendimiento"
-// panel) while this tab is open -- the same failure mode that made Armada
-// Control and "Rendimiento" look like two disagreeing systems in the
-// 2026-09-18 QA.
+// Polls the live active power profile so the Power tab stays correct when
+// it is changed from elsewhere (Steam's performance panel) while this tab is
+// open.
 export function useActivePowerProfile(initial: string = ""): string {
   const [active, setActive] = useState(initial);
   useEffect(() => {

@@ -3,6 +3,7 @@ import grp
 import json
 import os
 import pwd
+import re
 import selectors
 import shlex
 import socket
@@ -21,17 +22,14 @@ SOCKET = Path("/run/armada/control.sock")
 SESSION_SOCKET = Path(armada_perf.SESSION_SOCKET)
 ABL_VERSION_TOOL = "/usr/lib/armada/abl-version"
 RGB_TOOL = "/usr/bin/armada-rgb"
-# Matches the armada-rgb CLI contract (.claude/projects/rp6-rgb-cli-contract-
-# 2026-09-18.md, corrected 2026-09-18 late): screen_sync (armada#27) is an
-# effect. armada#23 (brightness-sync) is NOT an effect -- it's the
-# orthogonal `sync-brightness on|off` command below, combinable with any
-# effect here.
+# Effects accepted by `armada-rgb set --effect`. Brightness sync is not an
+# effect: it is the separate `sync-brightness on|off` command below and
+# combines with any effect here.
 RGB_EFFECTS = ("static", "breathing", "color_cycle", "rainbow", "load", "battery", "screen_sync")
-# armada#26: whether the suspend hook (56-armada-rgb-suspend-charging)
-# should pin the charge-indicator pattern at all -- opt-in (Jordi,
-# 2026-09-18), default OFF. Owned entirely by this plugin (NOT part of
-# armada-rgb's own /etc/armada/rgb.json); the hook reads this file directly
-# since it runs standalone via systemd, not through this socket.
+# Whether the suspend hook (56-armada-rgb-suspend-charging) shows the
+# charge-indicator pattern while asleep. Opt-in, default off. Owned by this
+# service, not by armada-rgb's /etc/armada/rgb.json; the hook reads this file
+# directly since it runs standalone via systemd, not through this socket.
 RGB_CHARGE_INDICATOR_CONFIG = Path("/etc/armada/rgb-charge-indicator.conf")
 RGB_SPEED_MIN = 1
 RGB_SPEED_MAX = 1000
@@ -51,8 +49,12 @@ SLEEP_CONFIG = Path("/etc/armada/sleep.conf")
 SUSPEND_MODE_KEY = "suspend_mode"
 NM_IGNORE_SLEEP = Path("/etc/NetworkManager/ignore-sleep")
 MEM_SLEEP_PATH = Path("/sys/power/mem_sleep")
-DESKTOP_SESSION_PATH = Path("/etc/armada/desktop-session")
-DESKTOP_MODES = {"desktop", "mobile"}
+STEAMOSCTL = "/usr/bin/steamosctl"
+STEAMOS_MANAGER_STATE = Path("/var/home/armada/.config/steamos-manager/state.toml")
+DESKTOP_SESSION_FOR_MODE = {
+    "desktop": "armada-plasma.desktop",
+    "mobile": "armada-plasma-mobile.desktop",
+}
 # Menu labels for the sleep-mode dropdown. This module owns the authoritative
 # sleep-mode list (both the UI menu and the enforcement set derive from it); the
 # Decky plugin consumes it instead of re-deriving its own.
@@ -100,6 +102,7 @@ CALIBRATION_PARAMS = (
     "trigger_right_antideadzone",
 )
 CALIBRATION_BACKENDS = {
+    "mangmi": Path("/sys/module/mangmi_pocket_max/parameters"),
     "rsinput": Path("/sys/module/rsinput/parameters"),
     "retroid": Path("/sys/module/retroid/parameters"),
 }
@@ -175,19 +178,25 @@ def set_networkmanager_sleep_allowed(allow_sleep):
         NM_IGNORE_SLEEP.touch()
 
 def get_desktop_mode() -> str:
+    # steamos-manager (steamosctl set-default-desktop-session) is the source of truth
     try:
-        mode = DESKTOP_SESSION_PATH.read_text(encoding="utf-8").strip()
+        text = STEAMOS_MANAGER_STATE.read_text(encoding="utf-8")
     except OSError:
         return "desktop"
 
-    return mode if mode in DESKTOP_MODES else "desktop"
+    match = re.search(r'(?m)^desktop_session\s*=\s*"([^"]*)"', text)
+    session = match.group(1) if match else ""
+    for mode, mode_session in DESKTOP_SESSION_FOR_MODE.items():
+        if session == mode_session:
+            return mode
+    return "desktop"
 
 
 def set_desktop_mode(mode: str):
-    if mode not in DESKTOP_MODES:
+    if mode not in DESKTOP_SESSION_FOR_MODE:
         raise ValueError("invalid desktop mode")
 
-    atomic_write(DESKTOP_SESSION_PATH, f"{mode}\n")
+    steamosctl("set-default-desktop-session", DESKTOP_SESSION_FOR_MODE[mode])
 
 def select_mem_sleep(mode):
     if mode in ("s2idle", "deep"):
@@ -233,17 +242,21 @@ def bottom_screen_supported():
     )
 
 
-def session_systemctl(*args, check=True, timeout=30):
+def session_user_command(*command):
     user = os.environ.get("ARMADA_SESSION_USER", "armada")
     account = pwd.getpwnam(user)
+    return [
+        "/usr/bin/runuser", "-u", user, "--", "env",
+        f"HOME={account.pw_dir}",
+        f"XDG_RUNTIME_DIR=/run/user/{account.pw_uid}",
+        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{account.pw_uid}/bus",
+        *command,
+    ]
+
+
+def session_systemctl(*args, check=True, timeout=30):
     result = subprocess.run(
-        [
-            "/usr/bin/runuser", "-u", user, "--", "env",
-            f"HOME={account.pw_dir}",
-            f"XDG_RUNTIME_DIR=/run/user/{account.pw_uid}",
-            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{account.pw_uid}/bus",
-            "/usr/bin/systemctl", "--user", *args,
-        ],
+        session_user_command("/usr/bin/systemctl", "--user", *args),
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -252,6 +265,20 @@ def session_systemctl(*args, check=True, timeout=30):
     if check and result.returncode != 0:
         raise RuntimeError("could not update bottom-screen service")
     return result
+
+
+def steamosctl(*args, timeout=10):
+    result = subprocess.run(
+        session_user_command(STEAMOSCTL, *args),
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or "steamosctl failed").strip())
+    return result.stdout.strip()
 
 
 def bottom_screen_enabled():
@@ -538,10 +565,8 @@ def rgb_supported():
 
 def run_rgb(command):
     # Turn low-level subprocess/parse failures into a message the UI can show
-    # as-is instead of a bare "Python Exception" toast (the 2026-09-18 QA:
-    # armada-rgb.service was crash-looping on a version skew and every RGB
-    # action surfaced as opaque text). Each branch says WHAT broke so it's
-    # actionable even without opening a shell.
+    # as-is instead of a bare "Python Exception" toast. Each branch says what
+    # broke so it's actionable without opening a shell.
     try:
         output = subprocess.check_output(
             [RGB_TOOL, *command], text=True, timeout=5, stderr=subprocess.PIPE,
@@ -583,6 +608,7 @@ def action_set_rgb(request):
         return run_rgb(["off"])
 
     color = request.get("color")
+    saturation = request.get("saturation")
     brightness = request.get("brightness")
     valid_color = (
         isinstance(color, str)
@@ -591,6 +617,14 @@ def action_set_rgb(request):
     )
     if not valid_color:
         raise ValueError("invalid RGB color")
+    if saturation is not None:
+        valid_saturation = (
+            isinstance(saturation, int)
+            and not isinstance(saturation, bool)
+            and 0 <= saturation <= 100
+        )
+        if not valid_saturation:
+            raise ValueError("invalid RGB saturation")
     valid_brightness = (
         isinstance(brightness, int)
         and not isinstance(brightness, bool)
@@ -599,7 +633,10 @@ def action_set_rgb(request):
     if not valid_brightness:
         raise ValueError("invalid RGB brightness")
 
-    command = ["set", "--color", color, "--brightness", str(brightness)]
+    command = ["set", "--color", color]
+    if saturation is not None:
+        command.extend(["--saturation", str(saturation)])
+    command.extend(["--brightness", str(brightness)])
 
     effect = request.get("effect")
     if effect is not None:
@@ -622,8 +659,7 @@ def action_set_rgb(request):
 
 
 def action_set_rgb_sync_brightness(request):
-    # armada#23: an orthogonal toggle, NOT an --effect value -- dedicated
-    # command per the contract, combinable with any effect above.
+    # A separate toggle, not an --effect value: it combines with any effect.
     if not rgb_supported():
         raise RuntimeError("RGB lighting is not supported on this device")
     enabled = request.get("enabled")
@@ -731,7 +767,7 @@ class PerfManager:
     def gamescope_layer(self, settings):
         clean = armada_perf.sanitize_perf(settings, self.env)
         layer = {}
-        for key in ("gamescopeNice", "gamescopeRr", "gamescopeCores", "scheduler"):
+        for key in ("gamescopeNice", "gamescopeCores", "scheduler"):
             if key in clean:
                 layer[key] = clean[key]
         if clean.get("scheduler") == "cosmos":

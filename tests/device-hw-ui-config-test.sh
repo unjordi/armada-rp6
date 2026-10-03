@@ -48,9 +48,9 @@ plugin_system.call = lambda action, **payload: (
 
 # Everything else build_config reads is unrelated to this test.
 for name, value in {
-    "load_fex_contract": {}, "parse_power": {"profiles": {}, "general": {"default_profile": "balanced"}},
+    "load_fex_contract": {}, "parse_power": {"profiles": {}, "general": {"default_profile": "balanced"}, "fan": {}},
     "active_profile": None, "factory_power_defaults": {}, "load_tweaks": {}, "installed_games": [],
-    "fex_profile_labels": {}, "perf_info": {}, "rgb_supported": False, "os_version": "",
+    "fex_profile_labels": {}, "load_env_presets": [], "perf_info": {}, "rgb_supported": False, "os_version": "",
     "abl_version": "", "abl_auto_enabled": False, "bottom_screen_brightness": None,
     "bottom_screen_active": False, "bottom_screen_enabled": False, "ssh_enabled": False,
     "mtp_enabled": False, "desktop_mode": "", "desktop_modes": [], "sleep_modes": [],

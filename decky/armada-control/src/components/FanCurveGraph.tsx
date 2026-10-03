@@ -2,6 +2,7 @@ import { Focusable, GamepadButton } from "@decky/ui";
 import type { GamepadEvent } from "@decky/ui";
 import { useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { t } from "../i18n";
 import {
   CURVE_PWM_MAX as PWM_MAX,
   CURVE_PWM_MIN as PWM_MIN,
@@ -12,7 +13,6 @@ import {
 } from "../lib/fanCurve";
 import type { CurvePoint } from "../lib/fanCurve";
 import { clamp } from "../lib/util";
-import { t } from "../i18n";
 
 const WIDTH = 280;
 const HEIGHT = 170;
@@ -192,8 +192,8 @@ export function FanCurveGraph({ points, onChange, currentTemp }: {
       onButtonDown={controllerActive ? handleGraphButtonDown : undefined}
       onGamepadDirection={controllerActive ? handleGraphDirection : undefined}
       onGamepadBlur={controllerActive ? exitControllerMode : undefined}
-      onOKActionDescription={controllerActive ? undefined : t("Edit Point")}
-      onCancelActionDescription={controllerActive ? t("Stop Editing") : undefined}
+      onOKActionDescription={controllerActive ? undefined : t("fanCurve.editPoint")}
+      onCancelActionDescription={controllerActive ? t("fanCurve.stopEditing") : undefined}
     >
       <svg
         ref={svgRef}
@@ -205,7 +205,9 @@ export function FanCurveGraph({ points, onChange, currentTemp }: {
         <g pointerEvents="none">
           <rect x={PAD_LEFT} y={PAD_TOP} width={Math.max(0, fanStopX - PAD_LEFT)} height={PLOT_H} fill="rgba(255,209,102,0.14)" />
           <line x1={fanStopX} x2={fanStopX} y1={PAD_TOP} y2={PAD_TOP + PLOT_H} stroke="rgba(255,209,102,0.55)" strokeDasharray="2,2" />
-          <text x={PAD_LEFT + 2} y={PAD_TOP + 9} fontSize="7" textAnchor="start" fill="rgba(255,209,102,0.85)">{t("FAN STOPPED")}</text>
+          <text x={PAD_LEFT + 2} y={PAD_TOP + 9} fontSize="7" textAnchor="start" fill="rgba(255,209,102,0.85)">
+            {t("fanCurve.stopped")}
+          </text>
         </g>
       ) : null}
       {PWM_TICK_PERCENTS.map((percent) => {
@@ -287,7 +289,10 @@ export function FanCurveGraph({ points, onChange, currentTemp }: {
       </svg>
       {controllerActive ? (
         <div className="afc-controller-hint">
-          {`D-Pad moves point ${clamp(controllerIndex, 0, points.length - 1) + 1} of ${points.length} · LB/RB switches points · B stops`}
+          {t("fanCurve.controllerEditStatus", {
+            current: clamp(controllerIndex, 0, points.length - 1) + 1,
+            total: points.length,
+          })}
         </div>
       ) : null}
     </Focusable>

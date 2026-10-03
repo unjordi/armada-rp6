@@ -9,17 +9,17 @@ import { FanCurveEditorModal } from "../components/FanCurveEditorModal";
 import { ToggleRow } from "../components/widgets";
 import { useCurrentTemp } from "../hooks/useCurrentTemp";
 import { useFanCurvesSave } from "../hooks/useFanCurvesSave";
+import { t } from "../i18n";
 import { friendlyError } from "../lib/errors";
 import { clone } from "../lib/util";
 import type { Config, CurvesState } from "../types";
-import { t } from "../i18n";
 
 export function Fans({ setConfig }: {
   setConfig: Dispatch<SetStateAction<Config | null>>;
 }) {
   const [saved, setSaved] = useState<CurvesState | null>(null);
   const [draft, setDraft] = useState<CurvesState | null>(null);
-  const [message, setMessage] = useState(t("Loading"));
+  const [message, setMessage] = useState("Loading");
   const [selectedCurve, setSelectedCurve] = useState("");
   const currentTemp = useCurrentTemp();
 
@@ -32,7 +32,7 @@ export function Fans({ setConfig }: {
       const activeCurve = next.profiles?.[next.activeProfile]?.fan_curve;
       setSelectedCurve(activeCurve && names.includes(activeCurve) ? activeCurve : names[0] || "");
     } catch (error) {
-      setMessage(friendlyError(error, t("Could not load fan curves")));
+      setMessage(friendlyError(error, t("fans.loadError")));
     }
   }, []);
   useEffect(() => {
@@ -54,9 +54,8 @@ export function Fans({ setConfig }: {
     onSaved: syncSharedFanCurves,
   });
 
-  // armada#29: applies immediately (like the Settings tab's toggles), not
-  // part of the curve editor's dirty/Save flow -- it's a separate on/off
-  // gate for armada-powerd's own baked-in battery floor, not a curve edit.
+  // Applies immediately, like the Settings tab's toggles: it gates
+  // armada-powerd's battery-temperature floor, it is not a curve edit.
   const [batteryFanUpdating, setBatteryFanUpdating] = useState(false);
   const toggleBatteryFan = async (enabled: boolean) => {
     setDraft((current) => (current ? { ...current, batteryFanEnabled: enabled } : current));
@@ -67,7 +66,7 @@ export function Fans({ setConfig }: {
       setDraft((current) => (current ? { ...current, batteryFanEnabled: next.batteryFanEnabled } : current));
     } catch (error) {
       setDraft((current) => (current ? { ...current, batteryFanEnabled: !enabled } : current));
-      toaster.toast({ title: t("Could not change battery fan floor"), body: friendlyError(error) });
+      toaster.toast({ title: t("fans.batteryFloorError"), body: friendlyError(error) });
     } finally {
       setBatteryFanUpdating(false);
     }
@@ -75,8 +74,8 @@ export function Fans({ setConfig }: {
 
   if (!draft) {
     return (
-      <PanelSection title={t("Armada Fans")}>
-        <Field label={message} />
+      <PanelSection title={t("fans.title")}>
+        <Field label={message === "Loading" ? t("common.loading") : message} />
       </PanelSection>
     );
   }
@@ -117,29 +116,31 @@ export function Fans({ setConfig }: {
         onOpenCreateCurve={openCreateCurve}
         currentTemp={currentTemp}
       />
-      <PanelSection title={t("BATTERY FAN FLOOR")}>
+      <PanelSection title={t("fans.batteryFloor")}>
         <ToggleRow
-          label={t("Floor the fan by battery temperature")}
-          description={t("Keeps the fan running (with a boost while charging) even if CPU/GPU are cool, so a hot battery under fast charging still gets airflow. Off restores the stock behaviour.")}
+          label={t("fans.batteryFloorToggle")}
+          description={t("fans.batteryFloorDescription")}
           value={draft.batteryFanEnabled}
           disabled={batteryFanUpdating}
           onChange={toggleBatteryFan}
         />
       </PanelSection>
-      <PanelSection title={t("SAVE")}>
+      <PanelSection title={t("fans.saveSection")}>
         <PanelSectionRow>
           <div className="afc-control-inset">
             <ButtonItem layout="below" onClick={handleSave} disabled={!dirty || saving}>
-              {saving ? t("Saving...") : t("Save Changes")}
+              {saving ? t("common.saving") : t("common.saveChanges")}
             </ButtonItem>
           </div>
         </PanelSectionRow>
         <PanelSectionRow>
           <div className="afc-control-inset">
-            <ButtonItem layout="below" onClick={handleRevert} disabled={!dirty || saving}>{t("Revert Changes")}</ButtonItem>
+            <ButtonItem layout="below" onClick={handleRevert} disabled={!dirty || saving}>
+              {t("common.revertChanges")}
+            </ButtonItem>
           </div>
         </PanelSectionRow>
-        {dirty ? <div className="afc-note">{t("You have unsaved changes.")}</div> : null}
+        {dirty ? <div className="afc-note">{t("common.unsavedChanges")}</div> : null}
       </PanelSection>
     </div>
   );
