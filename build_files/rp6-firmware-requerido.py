@@ -182,6 +182,13 @@ def main():
         for fn in files:
             rel = os.path.relpath(os.path.join(dirpath, fn), fwroot)
             base = re.sub(r"\.(xz|zst)$", "", rel)
+            full = os.path.join(dirpath, fn)
+            if os.path.islink(full):
+                # A board file that is a symlink into another SoC's directory (e.g. a reference board's topology
+                # pointing at qcom/kaanapali/) belongs to that SoC, not to the RP6.
+                target = os.path.relpath(os.path.realpath(full), os.path.realpath(fwroot))
+                if other_soc(target):
+                    continue
             for pat, why in patterns.items():
                 if why != "device tree firmware-name" and other_soc(base):
                     continue  # a wildcard such as qcom/*/*-tplg.bin also reaches other SoCs' files
