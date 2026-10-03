@@ -155,8 +155,10 @@ start_daemon() {
 # trigger would paint on an event, so the "already charging" case shows amber
 # immediately instead of the user's last color. Amber (charging) uses the same
 # hue as armada-rgb's Battery effect (hsv 0.11,1,1 ~ 255,168,0); green = full.
-# No-op (leaves the LEDs alone) when not charging -- on battery the sleeping
-# glow is off, and a later plug-in is handled by the armed trigger's edge.
+# On battery it BLANKS the LEDs: `pre` keeps the controllers alive (keep_alive)
+# so a plug-in mid-sleep can repaint them, and leaving the user's last frame lit
+# would glow all night on battery (measured 2026-10: ~2.3 %/h asleep vs ~0.5 %/h
+# before keep_alive). The armed trigger repaints on the plug-in edge.
 seed_current_charge() {
     local status cap r g b led order ch vals
     status=$(cat "$sysfs_root/class/power_supply/$psy/status" 2>/dev/null) || return 0
@@ -167,7 +169,7 @@ seed_current_charge() {
             cap=$(cat "$sysfs_root/class/power_supply/$psy/capacity" 2>/dev/null || echo 0)
             if [[ "$cap" == 100 ]]; then r=0; g=255; b=0; else r=255; g=168; b=0; fi ;;
         *)
-            return 0 ;;
+            r=0; g=0; b=0 ;;
     esac
     for led in $indicator_leds_glob; do
         [[ -w "$led/multi_intensity" && -r "$led/multi_index" ]] || continue
@@ -184,7 +186,9 @@ seed_current_charge() {
         echo "${vals% }" >"$led/multi_intensity" 2>/dev/null || true
         # Match the kernel trigger's full brightness so there is no visible step
         # when it repaints on a later power_supply_changed().
-        if [[ -w "$led/brightness" && -r "$led/max_brightness" ]]; then
+        if [[ "$r$g$b" == 000 ]]; then
+            [[ -w "$led/brightness" ]] && echo 0 >"$led/brightness" 2>/dev/null || true
+        elif [[ -w "$led/brightness" && -r "$led/max_brightness" ]]; then
             cat "$led/max_brightness" >"$led/brightness" 2>/dev/null || true
         fi
     done
