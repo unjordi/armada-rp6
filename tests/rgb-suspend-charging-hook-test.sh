@@ -168,12 +168,15 @@ run_hook pre suspend
 check "pre+on+charging@100: seeds green (topped off)" "$(intensities)" "0 255 0"
 
 # 4) opt-in ON, DISCHARGING -> arms the trigger (plug-in-while-asleep still
-#    works) but does NOT seed a color (LEDs left as-is; sleeping glow off).
+#    works) and BLANKS the LEDs: the controllers stay alive, so a lit frame left
+#    as-is would glow all night on battery. Start lit, like the real device.
 reset_nodes; set_indicator 1; set_charge Discharging 55; service_active
+for d in "${leds[@]}"; do printf '38\n' >"$d/brightness"; done
 run_hook pre suspend
 check "pre+on+discharging: trigger still armed (catches later plug-in)" "$(triggers)" "$TRIGGER"
-check "pre+on+discharging: no seed (LEDs left alone)" "$(intensities)" "10 20 30"
-check "pre+on+discharging: brightness left alone" "$(brights)" "0"
+check "pre+on+discharging: keep_alive on (plug-in can repaint)" "$(keepalives)" "1"
+check "pre+on+discharging: LEDs blanked (no glow on battery)" "$(intensities)" "0 0 0"
+check "pre+on+discharging: brightness 0" "$(brights)" "0"
 
 # 5) daemon NOT active at pre -> we don't stop it, no marker, no seed-blocking.
 reset_nodes; set_indicator 1; set_charge Charging 60; service_inactive
