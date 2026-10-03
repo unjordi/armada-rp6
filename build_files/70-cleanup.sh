@@ -73,7 +73,7 @@ done
 # qcom (adreno a740/a6xx, venus, adsp/cdsp/modem), ath12k/ath11k (WCN7850)
 # y el audio/bt del device. Borramos TODO lo demás de /usr/lib/firmware.
 # (allowlist, no blocklist frágil: si aparece una familia nueva, se borra por defecto)
-FW_ALLOW='qcom ath12k ath11k ath10k ath6k ath9k brcm cypress nxp ti-connectivity'
+FW_ALLOW='qcom qca ath12k ath11k ath10k ath6k ath9k brcm cypress nxp ti-connectivity'
 for d in /usr/lib/firmware/*/; do
     name="$(basename "$d")"
     keep=0
@@ -176,6 +176,6 @@ for required in qcom-firmware atheros-firmware bootc podman skopeo dracut \
 done
 
 # Firmware the RP6 loads at runtime that the pruning above must never remove.
-for fw in qcom/vpu/vpu30_p4.mbn; do
+for fw in qcom/vpu/vpu30_p4.mbn qca/hmtbtfw20.tlv qca/hmtnv20.bin; do
     ls /usr/lib/firmware/$fw* >/dev/null 2>&1 || { echo "[70-cleanup] ERROR: firmware $fw was removed by the slim pass"; exit 1; }
 done
