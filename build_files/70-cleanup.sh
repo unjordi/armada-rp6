@@ -69,11 +69,15 @@ for package in \
     esac
 done
 
+# Firmware the RP6 hardware can load (device tree + its drivers), computed BEFORE pruning; checked after it.
+./rp6-firmware-requerido.py > /tmp/rp6-firmware-requerido.txt
+[ -s /tmp/rp6-firmware-requerido.txt ] || { echo "[70-cleanup] ERROR: rp6-firmware-requerido.py listed nothing; the firmware guard would check nothing"; exit 1; }
+
 # Firmware pruning — ALLOWLIST (conservador): el SM8550 (kalama) solo usa
 # qcom (adreno a740/a6xx, venus, adsp/cdsp/modem), ath12k/ath11k (WCN7850)
 # y el audio/bt del device. Borramos TODO lo demás de /usr/lib/firmware.
 # (allowlist, no blocklist frágil: si aparece una familia nueva, se borra por defecto)
-FW_ALLOW='qcom ath12k ath11k ath10k ath6k ath9k brcm cypress nxp ti-connectivity'
+FW_ALLOW='qcom qca ath12k ath11k ath10k ath6k ath9k brcm cypress nxp ti-connectivity'
 for d in /usr/lib/firmware/*/; do
     name="$(basename "$d")"
     keep=0
@@ -175,7 +179,12 @@ for required in qcom-firmware atheros-firmware bootc podman skopeo dracut \
     rpm -q "$required" >/dev/null || { echo "[70-cleanup] ERROR: $required was removed by the slim pass"; exit 1; }
 done
 
-# Firmware the RP6 loads at runtime that the pruning above must never remove.
-for fw in qcom/vpu/vpu30_p4.mbn; do
-    ls /usr/lib/firmware/$fw* >/dev/null 2>&1 || { echo "[70-cleanup] ERROR: firmware $fw was removed by the slim pass"; exit 1; }
-done
+# Every firmware file the RP6 hardware can load that existed before pruning must still exist.
+missing=0
+while read -r fw; do
+    f=/usr/lib/firmware/$fw
+    [ -e "$f" ] || [ -e "$f.xz" ] || [ -e "$f.zst" ] \
+        || { echo "[70-cleanup] ERROR: the slim pass removed firmware the RP6 needs: $fw"; missing=1; }
+done < /tmp/rp6-firmware-requerido.txt
+[ "$missing" = 0 ] || { echo "[70-cleanup] see: ./rp6-firmware-requerido.py --explain (which driver asks for each file)"; exit 1; }
+rm -f /tmp/rp6-firmware-requerido.txt
