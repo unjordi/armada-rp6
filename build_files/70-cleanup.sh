@@ -71,13 +71,14 @@ for d in /usr/lib/firmware/*/; do
         rm -rf "$d"
     fi
 done
-# Dentro de qcom: dejar solo las familias del kalama (a740/a6xx, venus, adsp/cdsp/modem, wcn7850)
+# Dentro de qcom: dejar solo las familias del kalama (a740/a6xx, adsp/cdsp/modem, wcn7850) y qcom/vpu
+# (firmware del decodificador de video iris del SM8550; sin él qcom-iris falla, /dev/video0 queda roto y
+# WirePlumber se traba al enumerarlo → sin audio. Lo vigila el chequeo de firmware al final).
 # y borrar SoCs/funciones que el SM8550 no usa.
 rm -rf \
     /usr/lib/firmware/qcom/sm8750 \
     /usr/lib/firmware/qcom/x1e80100 \
     /usr/lib/firmware/qcom/sm8650 \
-    /usr/lib/firmware/qcom/vpu \
     /usr/lib/firmware/qcom/sc8280xp \
     /usr/lib/firmware/qcom/kaanapali \
     /usr/lib/firmware/qcom/sdm845 \
@@ -159,4 +160,9 @@ for required in qcom-firmware atheros-firmware bootc podman skopeo dracut \
     pipewire wireplumber bluez plasma-workspace kwin sddm flatpak \
     gamescope-session inputplumber powerdevil fex-emu armada-rgb spectacle wireguard-tools; do
     rpm -q "$required" >/dev/null || { echo "[70-cleanup] ERROR: $required was removed by the slim pass"; exit 1; }
+done
+
+# Firmware the RP6 loads at runtime that the pruning above must never remove.
+for fw in qcom/vpu/vpu30_p4.mbn; do
+    ls /usr/lib/firmware/$fw* >/dev/null 2>&1 || { echo "[70-cleanup] ERROR: firmware $fw was removed by the slim pass"; exit 1; }
 done
