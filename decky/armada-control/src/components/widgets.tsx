@@ -26,7 +26,7 @@ export function SelectEdit({ label, value, options, onChange, disabled, placehol
     const choice = typeof option === "string" ? { data: option, label: option } : option;
     if (choice.disabled) {
       disabledData.add(choice.data);
-      return { ...choice, label: `${choice.label} (${t("unavailable")})` };
+      return { ...choice, label: `${choice.label} (${t("common.unavailable")})` };
     }
     return choice;
   });

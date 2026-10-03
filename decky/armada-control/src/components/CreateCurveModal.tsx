@@ -2,11 +2,11 @@ import { DialogBody, DialogButton, DialogFooter, Field, ModalRoot, PanelSectionR
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { PseudoDropdown } from "./fanWidgets";
+import { t, translateLabel } from "../i18n";
 import { slugifyCurveName } from "../lib/fanCurve";
 import { clone, titleCase } from "../lib/util";
 import { styles } from "../styles";
 import type { CurvesState } from "../types";
-import { t, tLabel } from "../i18n";
 
 export function CreateCurveModal({
   initial,
@@ -49,12 +49,12 @@ export function CreateCurveModal({
     <ModalRoot onCancel={() => closeModal?.()}>
       <style>{styles}</style>
       <DialogBody className="afc-scope">
-        <h2 className="afc-modal-title">{t("Create Curve")}</h2>
+        <h2 className="afc-modal-title">{t("fanCurve.create")}</h2>
         <PanelSectionRow>
           <div className="afc-control-inset">
             <Field
-              label={t("Curve Name")}
-              description={t("Letters, numbers, spaces, hyphens, and underscores are supported.")}
+              label={t("fanCurve.name")}
+              description={t("fanCurve.nameRequirements")}
               childrenLayout="below"
               childrenContainerWidth="max"
             >
@@ -63,24 +63,26 @@ export function CreateCurveModal({
           </div>
         </PanelSectionRow>
         {duplicateName ? (
-          <div className="afc-modal-error">{t("A curve named “{name}” already exists.", { name })}</div>
+          <div className="afc-modal-error">{t("fanCurve.nameExists", { name })}</div>
         ) : null}
         <PseudoDropdown
-          label={t("Base Curve")}
+          label={t("fanCurve.base")}
           value={baseCurve}
           options={names.map((curveName) => ({
             data: curveName,
-            label: tLabel(initial.fanCurves[curveName]?.label || titleCase(curveName)),
+            label: translateLabel(initial.fanCurves[curveName]?.label || titleCase(curveName)),
           }))}
           onChange={setBaseCurve}
         />
         <div className="afc-note">
-          {t("The new curve starts as a copy of the selected base curve. Changes remain unsaved until Save Changes is pressed.")}
+          {t("fanCurve.createDescription")}
         </div>
       </DialogBody>
       <DialogFooter>
-        <DialogButton onClick={() => closeModal?.()}>{t("Cancel")}</DialogButton>
-        <DialogButton onClick={createCurve} disabled={!canCreate}>{t("Create Curve")}</DialogButton>
+        <DialogButton onClick={() => closeModal?.()}>{t("common.cancel")}</DialogButton>
+        <DialogButton onClick={createCurve} disabled={!canCreate}>
+          {t("fanCurve.create")}
+        </DialogButton>
       </DialogFooter>
     </ModalRoot>
   );

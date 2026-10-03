@@ -20,11 +20,12 @@ dnf5 -y install --setopt=install_weak_deps=False \
     NetworkManager \
     NetworkManager-wifi \
     wireguard-tools \
-    iwd \
     wpa_supplicant \
     bluez \
     dbus-broker \
     python3-gobject \
+    gtk4 \
+    libadwaita \
     python3-websocket-client \
     polkit \
     upower \
@@ -33,11 +34,17 @@ dnf5 -y install --setopt=install_weak_deps=False \
     curl \
     git \
     jq \
+    newt \
+    python-unversioned-command \
+    lsb_release \
     htop \
     lsof \
     scx-scheds \
     unzip \
     fuse \
+    fuse-libs \
+    libxcrypt-compat \
+    sdl2-compat \
     evtest \
     dbus-x11 \
     xdg-user-dirs \

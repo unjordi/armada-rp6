@@ -32,21 +32,7 @@ EOF
 
 source /ctx/abl/release.env
 abl_releases=/ctx/abl/releases.tsv
-abl_archive=/tmp/rocknix-abl.tar.gz
-abl_src=/tmp/rocknix-abl
-mkdir -p "${abl_src}"
-# ROCKNIX drops the tarball from older releases once a new one ships. The payloads are verified below
-# against releases.tsv (size + sha256), so a vendored copy of the SAME approved bytes is an equal source.
-if curl --connect-timeout 30 --retry 3 -fsSL -o "${abl_archive}" \
-    "https://github.com/ROCKNIX/abl/releases/download/v${ARMADA_ABL_VERSION}/rocknix-abl-v${ARMADA_ABL_VERSION}.tar.gz"; then
-    tar -xzf "${abl_archive}" -C "${abl_src}" --strip-components=1
-elif [[ -d /ctx/abl/vendor/v${ARMADA_ABL_VERSION} ]]; then
-    echo "[ABL] upstream v${ARMADA_ABL_VERSION} tarball unavailable; using vendored payloads (hash-verified below)" >&2
-    cp /ctx/abl/vendor/v${ARMADA_ABL_VERSION}/abl_signed-*.elf "${abl_src}/"
-else
-    echo "[ABL] ERROR: v${ARMADA_ABL_VERSION} tarball unavailable upstream and no vendored copy in abl/vendor/" >&2
-    exit 1
-fi
+abl_src=/ctx/abl
 manifest=/usr/lib/armada/abl/manifest
 install -Dpm 0644 /dev/null "${manifest}"
 install -Dpm 0644 "${abl_releases}" /usr/lib/armada/abl/releases.tsv
@@ -81,8 +67,6 @@ for soc in SM8250 SM8550 SM8650 SM8750; do
         "${actual_hash}" \
         >> "${manifest}"
 done
-rm -f "${abl_archive}"
-rm -rf "${abl_src}"
 
 chmod 0755 /usr/libexec/armada/*
 chmod 0755 /usr/libexec/os-session-select
@@ -110,13 +94,16 @@ systemctl enable armada-installer-visibility.service
 systemctl enable armada-steamapps.service
 systemctl enable armada-powerd.service
 systemctl enable armada-control.service
-systemctl enable armada-steamos-manager.service
-systemctl --global enable armada-steamos-manager.service
+systemctl enable steamos-manager.service
+systemctl --global enable steamos-manager.service
+systemctl --global enable steamos-manager-session-cleanup.service
+systemctl --global enable armada-steam-default-session.service
+systemctl --global enable armada-steam-charging-eta.service
 systemctl enable armada-bootimg-sync.service
 systemctl enable armada-esp-rename.service
 systemctl enable armada-boot-hotkeys.service
 systemctl enable armada-flatpak-setup.service
-systemctl enable armada-waydroid-input.path
+systemctl enable armada-waydroid-input.service
 systemctl enable armada-splash-stall.service
 systemctl enable armada-splash-early.service
 systemctl enable armada-splash-reboot-screen.service
@@ -156,3 +143,6 @@ systemctl mask systemd-backlight@.service
 # We ship the flathub repo by default, the fedora repo only contains a subset of
 # the same apps that are in flathub, so we mask it to avoid confusion and issues.
 systemctl mask flatpak-add-fedora-repos.service
+
+# No CEC hardware on any Armada device.
+systemctl --global mask steamos-manager-configure-cecd.service

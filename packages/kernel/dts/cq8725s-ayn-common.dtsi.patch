@@ -1,0 +1,54 @@
+From: Armada <noreply@armada.local>
+Subject: [PATCH] arm64: dts: qcom: cq8725s: configure the Odin 3 gamepad and DP audio, fix PCIe WAKE# polarity
+
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+@@ -113,7 +113,6 @@
+ 			gpios = <&pm8550_gpios 6 GPIO_ACTIVE_LOW>;
+ 			debounce-interval = <15>;
+ 			linux,can-disable;
+-			wakeup-source;
+ 		};
+ 	};
+ 
+@@ -183,6 +182,22 @@
+ 				sound-dai = <&q6apm>;
+ 			};
+ 		};
++
++		dp-dai-link {
++			link-name = "DisplayPort Playback";
++
++			codec {
++				sound-dai = <&mdss_dp0>;
++			};
++
++			cpu {
++				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
+ 	};
+ 
+ 	pmic-glink {
+@@ -982,7 +997,7 @@
+ };
+ 
+ &pcieport0 {
+-	wake-gpios = <&tlmm 104 GPIO_ACTIVE_HIGH>;
++	wake-gpios = <&tlmm 104 GPIO_ACTIVE_LOW>;
+ 	reset-gpios = <&tlmm 102 GPIO_ACTIVE_LOW>;
+ 
+ 	wifi@0 {
+@@ -1390,6 +1405,8 @@
+ 
+ 	gamepad {
+ 		compatible = "gamepad,rsinput";
++		rumble-haptics;
++		axis-range = <1024>;
+ 
+ 		gamepad-name = "AYN Odin3 Gamepad";
+ 		gamepad-bus = <0x0003>;

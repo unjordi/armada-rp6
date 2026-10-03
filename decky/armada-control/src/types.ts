@@ -51,6 +51,24 @@ export interface FexProfile {
   config?: Record<string, string>;
 }
 
+// A text in env-presets.json is either one string or one string per locale, so a
+// label that needs no translation does not cost four lines.
+export type LocalizedText = string | Record<string, string>;
+
+export interface EnvPresetOption {
+  data: string;
+  label: LocalizedText;
+}
+
+export interface EnvPreset {
+  name: string;
+  description: LocalizedText;
+  // Closed list of values; absent means the value is free text.
+  options?: EnvPresetOption[];
+  // A hint only. The docs show these inside examples and never state a default.
+  example?: string;
+}
+
 export interface AbsControl {
   value: number;
   min: number;
@@ -71,12 +89,10 @@ export interface CalibrationState {
   params?: Record<string, number>;
 }
 
-// Matches the armada-rgb CLI contract
-// (.claude/projects/rp6-rgb-cli-contract-2026-09-18.md, corrected 2026-09-18
-// late): screen_sync (armada#27) is an effect (per-side ambilight off
-// gamescope screenshots). armada#23 (brightness-sync) is NOT an effect --
-// it's the orthogonal `syncBrightness` field below (dedicated
-// `sync-brightness on|off` command), combinable with any effect here.
+// Effects accepted by `armada-rgb set --effect`. screen_sync is a per-side
+// ambilight driven by gamescope screenshots. Brightness sync is not an effect:
+// it is the separate `sync_brightness` field (`armada-rgb sync-brightness
+// on|off`) and combines with any effect here.
 export type RgbEffect =
   | "static"
   | "breathing"
@@ -91,13 +107,11 @@ export interface RgbConfig {
   enabled: boolean;
   brightness: number;
   color: string;
+  saturation: number;
   // Omitted by armada-rgb when at their defaults (static / 100).
   effect?: RgbEffect;
   speed?: number;
-  // armada#23: raw pass-through of armada-rgb's own JSON key (snake_case,
-  // matching every other RgbConfig field -- this object is never
-  // camelCased, it's armada-rgb's LightingConfig verbatim). Omitted when
-  // false/default.
+  // armada-rgb's own snake_case key, passed through as-is. Omitted when off.
   sync_brightness?: boolean;
 }
 
@@ -117,14 +131,14 @@ export interface PerfInfo {
 export interface Config {
   power: PowerConfig;
   powerDefaults: PowerConfig;
-  // armada#24: the profile armada-powerd is running RIGHT NOW (live daemon
-  // state), independent of power.general.default_profile. This is what
-  // Steam's native "Rendimiento" panel also drives, so Power.tsx uses it as
-  // the single source of truth for "what's active" instead of drifting.
+  // The profile armada-powerd is running right now (live daemon state),
+  // independent of power.general.default_profile. Steam's performance panel
+  // drives the same state, so Power.tsx treats it as "what's active".
   activePowerProfile: string;
   tweaks: Tweaks;
   installedGames: InstalledGame[];
   fexProfiles: Record<string, FexProfile>;
+  envPresets: EnvPreset[];
   perf?: PerfInfo;
   cpuDeviceClass: string;
   // Top-bar profile glyph geometry from the device conf; empty when unset.
@@ -139,6 +153,7 @@ export interface Config {
   bottomScreenBrightnessSupported: boolean;
   bottomScreenActive: boolean;
   bottomScreenBrightness: number;
+  chargingFanPwm: number;
   sshEnabled: boolean;
   mtpEnabled: boolean;
   desktopMode: string;
@@ -184,9 +199,8 @@ export interface CurvesState {
   activeProfile: string;
   // Live marker instead polls get_current_temp (see hooks/useCurrentTemp).
   currentTemp: number | null;
-  // armada#29: opt-in gate for armada-powerd's battery-temperature fan
-  // floor (armada#6). The curve/boost stay factory-only -- this only turns
-  // the whole behaviour on/off, applies immediately (not part of the
-  // curve editor's dirty/Save flow).
+  // Gate for armada-powerd's battery-temperature fan floor. The curve itself
+  // stays factory-only; this turns the behaviour on/off and applies
+  // immediately (not part of the curve editor's Save flow).
   batteryFanEnabled: boolean;
 }

@@ -41,7 +41,7 @@ def set_active_profile(name):
     """Switch the LIVE profile now (org.armada.Power1 Profile, via
     armada-power), independent of [general] default_profile. This is what
     lets Armada Control's Power tab and Steam's native "Rendimiento" panel
-    activate the same thing instead of drifting (armada#24)."""
+    activate the same thing instead of drifting."""
     if name not in PROFILES:
         raise ValueError("invalid power profile")
     call("set_power_profile", profile=name)

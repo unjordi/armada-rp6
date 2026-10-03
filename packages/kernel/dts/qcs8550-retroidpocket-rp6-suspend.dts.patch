@@ -1,0 +1,61 @@
+From: Armada <noreply@armada.local>
+Subject: [PATCH] arm64: dts: qcom: rp6: keep the charge indicator and fan alive across suspend
+
+The HTR3212 stick LED controllers are marked always-on so the LED core does
+not blank their PWM pattern on suspend entry; their supply (vdd_mcu_3v3) is
+already always-on, so the charge indicator set by userspace survives deep
+suspend. vdd_fan_5v0 drops regulator-off-in-suspend so the fan can keep
+spinning while charging in suspend-to-RAM; pwm-fan still releases the supply
+when its suspend speed is 0, so the rail powers off on battery.
+---
+--- a/arch/arm64/boot/dts/qcom/qcs8550-retroidpocket-rp6.dts	2026-10-03 09:59:32.999390112 -0600
++++ b/arch/arm64/boot/dts/qcom/qcs8550-retroidpocket-rp6.dts	2026-10-03 09:59:33.002360308 -0600
+@@ -210,6 +210,16 @@
+ 		#size-cells = <0>;
+ 		sdb-gpios = <&tlmm 55 GPIO_ACTIVE_HIGH>;
+ 		vdd-supply = <&vdd_mcu_3v3>;
++		/*
++		 * Do NOT let the LED core blank these on system suspend: the
++		 * driver only sets LED_CORE_SUSPENDRESUME when "always-on" is
++		 * absent, and that core-blank zeroes brightness on suspend
++		 * entry -- which defeats the keep_alive charge indicator (the
++		 * chip stays powered but the pattern is wiped: "green ~0.5s
++		 * then dark"). vdd_mcu_3v3 is regulator-always-on, so the chip
++		 * retains its PWM across deep suspend when keep_alive is set.
++		 */
++		always-on;
+ 
+ 		ledl_b1: led@1 {
+ 			reg = <1>;
+@@ -282,6 +292,10 @@
+ 		#size-cells = <0>;
+ 		sdb-gpios = <&tlmm 56 GPIO_ACTIVE_HIGH>;
+ 		vdd-supply = <&vdd_mcu_3v3>;
++		/* See htr3212l above: keep the LED core from blanking the PWM
++		 * pattern on suspend so the keep_alive charge indicator survives
++		 * deep sleep instead of flashing for ~0.5s and going dark. */
++		always-on;
+ 
+ 		ledr_b1: led@1 {
+ 			reg = <1>;
+@@ -372,6 +386,20 @@
+         };
+ };
+ 
++/*
++ * Fan rail across suspend: drop regulator-off-in-suspend so vdd_fan_5v0 is not
++ * force-cut by the regulator core in suspend-to-RAM. This lets the fan keep
++ * spinning during a deep-suspend charge (cooling the battery while no CPU is up
++ * to run the thermal loop), paired with the pwm-fan suspend_pwm knob (kernel
++ * patch 0502) and the armada-fan-suspend-charging hook that only raises it
++ * while charging. Leak-safe on battery: the pwm-fan driver still disables the
++ * fan-supply consumer on suspend when suspend_pwm is 0, so the fixed GPIO
++ * regulator drops (use_count 0) and the rail powers off.
++ */
++&vdd_fan_5v0 {
++	/delete-node/ regulator-state-mem;
++};
++
+ &pmk8550_pwm {
+ 	status = "okay";
+ };

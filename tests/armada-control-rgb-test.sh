@@ -28,8 +28,8 @@ supported = False
 def check_output(command, **kwargs):
     commands.append(command)
     if command[-1] == "get":
-        return '{"version":1,"enabled":false,"brightness":25,"color":"FFFFFF"}'
-    return '{"version":1,"enabled":true,"brightness":40,"color":"A1B2C3"}'
+        return '{"version":1,"enabled":false,"brightness":25,"color":"FFFFFF","saturation":100}'
+    return '{"version":1,"enabled":true,"brightness":40,"color":"A1B2C3","saturation":50}'
 
 
 def run(command, **kwargs):
@@ -47,6 +47,20 @@ state = control.action_get_rgb({})
 assert state["color"] == "FFFFFF"
 assert commands.pop() == [control.RGB_TOOL, "get"]
 
+state = control.action_set_rgb({"enabled": True, "color": "a1b2c3", "saturation": 50, "brightness": 40})
+assert state["color"] == "A1B2C3"
+assert commands.pop() == [
+    control.RGB_TOOL,
+    "set",
+    "--color",
+    "a1b2c3",
+    "--saturation",
+    "50",
+    "--brightness",
+    "40",
+]
+
+# Legacy callers that omit saturation preserve the saved value in armada-rgb.
 state = control.action_set_rgb({"enabled": True, "color": "a1b2c3", "brightness": 40})
 assert state["color"] == "A1B2C3"
 assert commands.pop() == [
@@ -83,12 +97,29 @@ assert commands.pop() == [
     "250",
 ]
 
+control.action_set_rgb(
+    {"enabled": True, "color": "a1b2c3", "saturation": 60, "brightness": 40, "effect": "breathing"}
+)
+assert commands.pop() == [
+    control.RGB_TOOL,
+    "set",
+    "--color",
+    "a1b2c3",
+    "--saturation",
+    "60",
+    "--brightness",
+    "40",
+    "--effect",
+    "breathing",
+]
+
 for request in (
     {"enabled": True, "color": "12345", "brightness": 40},
     {"enabled": True, "color": "FFFFFF", "brightness": 101},
     {"enabled": True, "color": "FFFFFF", "brightness": 40, "effect": "sparkle"},
     {"enabled": True, "color": "FFFFFF", "brightness": 40, "speed": 0},
     {"enabled": True, "color": "FFFFFF", "brightness": 40, "speed": 1001},
+    {"enabled": True, "color": "FFFFFF", "saturation": 101, "brightness": 40},
 ):
     try:
         control.action_set_rgb(request)
@@ -109,23 +140,25 @@ assert rgb.rgb_supported()
 assert calls.pop() == ("get_rgb", {})
 assert rgb.get_rgb() == {}
 assert calls.pop() == ("get_rgb", {})
-rgb.set_rgb(True, "112233", 50)
+rgb.set_rgb(True, "112233", 75, 50)
 assert calls.pop() == (
     "set_rgb",
     {
         "enabled": True,
         "color": "112233",
+        "saturation": 75,
         "brightness": 50,
-        "effect": "static",
-        "speed": 100,
+        "effect": None,
+        "speed": None,
     },
 )
-rgb.set_rgb(True, "112233", 50, "breathing", 200)
+rgb.set_rgb(True, "112233", 75, 50, "breathing", 200)
 assert calls.pop() == (
     "set_rgb",
     {
         "enabled": True,
         "color": "112233",
+        "saturation": 75,
         "brightness": 50,
         "effect": "breathing",
         "speed": 200,
@@ -139,10 +172,8 @@ assert calls.pop() == ("get_rgb_charge_indicator_enabled", {})
 rgb.set_rgb_charge_indicator_enabled(True)
 assert calls.pop() == ("set_rgb_charge_indicator_enabled", {"enabled": True})
 
-# armada#27: matches the real armada-rgb CLI contract
-# (.claude/projects/rp6-rgb-cli-contract-2026-09-18.md, corrected 2026-09-18
-# late) -- screen_sync is a plain --effect value with no flags of its own.
-# armada#23 (brightness-sync) is explicitly NOT in this list -- see below.
+# screen_sync is a plain --effect value with no flags of its own. Brightness
+# sync is explicitly not an effect -- see below.
 assert "screen_sync" in control.RGB_EFFECTS
 assert set(control.RGB_EFFECTS) == {
     "static", "breathing", "color_cycle", "rainbow", "load", "battery", "screen_sync",
@@ -163,8 +194,8 @@ assert commands.pop() == [
     "screen_sync",
 ]
 
-# armada#23: an orthogonal toggle -- dedicated `sync-brightness on|off`
-# command, NOT an --effect value, NOT bundled into action_set_rgb's request.
+# Brightness sync is a separate `sync-brightness on|off` command, not an
+# --effect value and not bundled into action_set_rgb's request.
 control.action_set_rgb_sync_brightness({"enabled": True})
 assert commands.pop() == [control.RGB_TOOL, "sync-brightness", "on"]
 control.action_set_rgb_sync_brightness({"enabled": False})
@@ -176,10 +207,9 @@ except ValueError:
 else:
     raise AssertionError("non-bool sync_brightness was accepted")
 
-# armada#26: charge-indicator itself is a dedicated CLI command, not a
-# UI-facing action -- only the suspend hook (rgb-suspend-charging-hook-
-# test.sh) calls it, this UI never exposes a "charge indicator" button (per
-# the contract). What the UI DOES own is the opt-in GATE the hook reads.
+# The charge indicator itself is an armada-rgb command only the suspend hook
+# calls (rgb-suspend-charging-hook-test.sh); the UI owns just the opt-in gate
+# the hook reads.
 assert "charge_indicator" not in control.ACTIONS
 assert "set_charge_indicator" not in control.ACTIONS
 
@@ -211,9 +241,7 @@ for action in (
     assert action in control.ACTIONS, f"{action} not registered in ACTIONS"
 
 # run_rgb error handling: a Python exception must never reach the UI as
-# opaque text (2026-09-18 QA: armada-rgb.service crash-looping surfaced as
-# a bare "Python Exception" toast). Every failure mode gets a clean,
-# actionable RuntimeError message instead.
+# opaque text. Every failure mode gets a clean, actionable RuntimeError.
 
 
 def missing_tool(command, **kwargs):
@@ -271,8 +299,8 @@ else:
 
 control.subprocess.check_output = check_output
 
-# armada#24: switching the LIVE power profile via armada-power, independent
-# of [general] default_profile.
+# Switching the live power profile via armada-power, independent of
+# [general] default_profile.
 power_commands = []
 
 
@@ -334,10 +362,17 @@ except RuntimeError as exc:
     assert "Couldn't reach" in str(exc)
 else:
     raise AssertionError("missing armada-control socket was not reported")
+# RGB hardware descriptions live in armada-rgb's profiles, not in the device
+# confs. ARMADA_RGB_SYNC_SCALE is the one exception: armada-rgb reads it from
+# device-env to match the stick LEDs to the panel when following brightness.
+paths = list((root / "system_files/usr/lib/armada/devices").rglob("*"))
+paths.append(root / "system_files/usr/libexec/armada/device-env")
+for path in paths:
+    if path.is_file():
+        text = path.read_text().replace("ARMADA_RGB_SYNC_SCALE", "")
+        assert "ARMADA_RGB_" not in text, path
 PYEOF
 
-! rg -q 'ARMADA_RGB_' "$ROOT/system_files/usr/lib/armada/devices"
-! rg -q 'ARMADA_RGB_' "$ROOT/system_files/usr/libexec/armada/device-env"
 SERVICE="$ROOT/system_files/usr/lib/systemd/system/armada-rgb.service"
 ! grep -Fq 'ConditionPathExists=/etc/armada/rgb.json' "$SERVICE"
 grep -Fq 'ExecStart=/usr/bin/armada-rgb run' "$SERVICE"
