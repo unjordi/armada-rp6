@@ -110,18 +110,20 @@ rm -rf \
 # Doc/man pruning (🟢, ~164M): documentación y manpages no necesarios en el device.
 rm -rf /usr/share/doc /usr/share/man
 
-# Vulkan drivers (🟢, ~110M): dejar solo freedreno (adreno a740) + swrast/zink.
-# Borramos los ICDs de GPU que el SM8550 no usa.
-rm -f \
-    /usr/lib64/libvulkan_radeon.so \
-    /usr/lib64/libvulkan_panfrost.so \
-    /usr/lib64/libvulkan_nouveau.so \
-    /usr/lib64/libvulkan_asahi.so \
-    /usr/lib64/libvulkan_lvp.so \
-    /usr/lib64/libvulkan_powervr_mesa.so \
-    /usr/lib64/libvulkan_broadcom.so \
-    /usr/lib64/libvulkan_dzn.so \
-    /usr/lib64/libvulkan_virtio.so
+# Vulkan drivers: keep turnip (Adreno A740) and lavapipe (lvp, the CPU Vulkan fallback); drop the ICDs for GPUs
+# the SM8550 does not have, together with their loader manifests so no ICD points at a missing library.
+for icd in radeon panfrost nouveau asahi powervr_mesa broadcom dzn virtio; do
+    rm -f "/usr/lib64/libvulkan_${icd}.so" /usr/share/vulkan/icd.d/"${icd}"_icd.*.json
+done
+# turnip (the GPU) and lavapipe (CPU fallback) must survive, and no manifest may point at a missing library.
+for icd in freedreno lvp; do
+    [ -e "/usr/lib64/libvulkan_${icd}.so" ] && compgen -G "/usr/share/vulkan/icd.d/${icd}_icd.*.json" >/dev/null \
+        || { echo "[70-cleanup] ERROR: Vulkan ICD ${icd} was removed by the slim pass"; exit 1; }
+done
+for json in /usr/share/vulkan/icd.d/*.json; do
+    lib=$(sed -n 's/.*"library_path": *"\([^"]*\)".*/\1/p' "$json")
+    [ -z "$lib" ] || [ -e "$lib" ] || { echo "[70-cleanup] ERROR: $json points at missing $lib"; exit 1; }
+done
 
 # CJK input methods (🟢, ~59M): libpinyin/anthy/ibus-* no se usan en el device.
 # Solo se borran si NADA del set los requiere (verificación con rpm --whatrequires).
