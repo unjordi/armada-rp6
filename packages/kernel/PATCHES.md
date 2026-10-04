@@ -745,6 +745,10 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: armada
   upstream: local
   notes: Lets userspace keep a charge-indicator pattern lit on the HTR3212 stick LEDs through system suspend.
+- `patches/0522a-PCI-host-common-keep-root-port-d3cold-veto-for-suspend-to-ram.patch`
+  source: armada
+  upstream: local
+  notes: Keeps 0522's endpoint-only D3cold rule for s2idle but restores the root-port veto for suspend-to-RAM: with the controller off, nothing keeps a DDR vote through PSCI system suspend and the RP6 never resumes from deep.
 - `patches/0533-hwmon-pwm-fan-optional-static-pwm-across-suspend.patch`
   source: armada
   upstream: local

@@ -120,6 +120,7 @@ v9_20260729_qualcomm_crypto_qce_runtime_pm_interconnect.patch
 0512-PCI-qcom-skip-L23-ready-poll-on-SM8550.patch
 0513-PCI-qcom-honour-an-opp-suspend-opp-as-the-non-s2ram-memory-floor.patch
 0522-PCI-host-common-let-only-endpoints-veto-d3cold.patch
+0522a-PCI-host-common-keep-root-port-d3cold-veto-for-suspend-to-ram.patch
 0523-regulator-qcom-rpmh-add-suspend-state-support.patch
 0524-regulator-core-apply-mem-state-for-s2idle.patch
 0525-regulator-core-log-missing-suspend-configuration-at-debug.patch
