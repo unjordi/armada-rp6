@@ -278,3 +278,11 @@ def reapply_perf():
 
 def restart_game_mode():
     return bool(call("restart_game_mode").get("ok"))
+
+
+def get_keep_rollback():
+    return call("get_keep_rollback")
+
+
+def set_keep_rollback(enabled):
+    return call("set_keep_rollback", enabled=enabled)

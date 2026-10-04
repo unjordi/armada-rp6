@@ -1,0 +1,50 @@
+#!/bin/bash
+# Drops the ostree rollback deployment and its orphaned image layers unless
+# the user opted to keep it. Older images stay available via `bootc switch`.
+set -euo pipefail
+
+keep_file="${ARMADA_KEEP_ROLLBACK_FILE:-/etc/armada/keep-rollback}"
+ostree="${ARMADA_OSTREE:-ostree}"
+repo="${ARMADA_OSTREE_REPO_PATH:-/sysroot/ostree/repo}"
+
+log() { echo "[armada-prune-rollback] $*"; }
+die() { echo "[armada-prune-rollback] $*" >&2; exit 1; }
+
+if [[ -e "${keep_file}" ]]; then
+    log "keep-rollback is enabled; nothing to do"
+    exit 0
+fi
+
+status="$("${ostree}" admin status)" || die "ostree admin status failed"
+
+# Deployment lines are "* <osname> <csum>.<n>" or "  <osname> <csum>.<n>";
+# deeper-indented lines (origin:, Version:, ...) are not deployments.
+index=-1
+rollback=-1
+while IFS= read -r line; do
+    if [[ "${line}" =~ ^(\*| )\ [^[:space:]]+\ [0-9a-f]+\.[0-9]+ ]]; then
+        index=$((index + 1))
+        if [[ "${line}" == *"(rollback)"* ]]; then
+            rollback="${index}"
+        fi
+    fi
+done <<< "${status}"
+
+if (( rollback < 0 )); then
+    log "no rollback deployment"
+    exit 0
+fi
+
+log "removing rollback deployment ${rollback}"
+"${ostree}" admin undeploy "${rollback}" || die "ostree admin undeploy ${rollback} failed"
+
+if [[ -n "${ARMADA_PRUNE_SKIP_LAYERS:-}" ]]; then
+    exit 0
+fi
+
+# /sysroot is read-only on bootc; remount only inside a private namespace.
+log "pruning orphaned layers"
+unshare -m sh -c "mount -o remount,rw /sysroot \
+    && '${ostree}' container image prune-layers --repo='${repo}' \
+    && '${ostree}' prune --repo='${repo}' --refs-only" \
+    || die "layer pruning failed"

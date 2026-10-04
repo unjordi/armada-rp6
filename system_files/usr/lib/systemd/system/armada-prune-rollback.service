@@ -1,0 +1,8 @@
+[Unit]
+Description=Remove the ostree rollback deployment unless kept
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/armada/armada-prune-rollback
+StandardOutput=journal
+StandardError=journal

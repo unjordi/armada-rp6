@@ -31,6 +31,9 @@ RGB_EFFECTS = ("static", "breathing", "color_cycle", "rainbow", "load", "battery
 # service, not by armada-rgb's /etc/armada/rgb.json; the hook reads this file
 # directly since it runs standalone via systemd, not through this socket.
 RGB_CHARGE_INDICATOR_CONFIG = Path("/etc/armada/rgb-charge-indicator.conf")
+# Presence of this file keeps the ostree rollback deployment; armada-prune-rollback
+# (timer-driven, not this service) reads it directly.
+KEEP_ROLLBACK_FILE = Path("/etc/armada/keep-rollback")
 RGB_SPEED_MIN = 1
 RGB_SPEED_MAX = 1000
 ABL_CONFIG = Path("/etc/armada/abl.conf")
@@ -692,6 +695,21 @@ def action_set_rgb_charge_indicator_enabled(request):
     return {"enabled": rgb_charge_indicator_enabled()}
 
 
+def action_get_keep_rollback(request):
+    return {"enabled": KEEP_ROLLBACK_FILE.exists()}
+
+
+def action_set_keep_rollback(request):
+    enabled = request.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ValueError("invalid keep rollback enabled state")
+    if enabled:
+        atomic_write(KEEP_ROLLBACK_FILE, "")
+    else:
+        KEEP_ROLLBACK_FILE.unlink(missing_ok=True)
+    return {"enabled": KEEP_ROLLBACK_FILE.exists()}
+
+
 def action_set_power_profile(request):
     name = str(request.get("profile", ""))
     if name not in POWER_PROFILE_NAMES:
@@ -935,6 +953,8 @@ ACTIONS = {
     "set_rgb_sync_brightness": action_set_rgb_sync_brightness,
     "get_rgb_charge_indicator_enabled": action_get_rgb_charge_indicator_enabled,
     "set_rgb_charge_indicator_enabled": action_set_rgb_charge_indicator_enabled,
+    "get_keep_rollback": action_get_keep_rollback,
+    "set_keep_rollback": action_set_keep_rollback,
 }
 
 

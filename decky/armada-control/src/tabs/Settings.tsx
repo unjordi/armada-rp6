@@ -5,6 +5,7 @@ import type { Dispatch, SetStateAction } from "react";
 import {
   getBottomScreenActive,
   getConfig,
+  getKeepRollback,
   getSleepLogsEnabled,
   setAblAutoEnabled as applyAblAutoEnabled,
   setBottomScreenBrightness as applyBottomScreenBrightness,
@@ -13,6 +14,7 @@ import {
   setControllerType as applyControllerType,
   setMtpEnabled as applyMtpEnabled,
   setDesktopMode as applyDesktopMode,
+  setKeepRollback as applyKeepRollback,
   setSleepMode as applySleepMode,
   setSleepLogsEnabled as applySleepLogsEnabled,
   setSshEnabled as applySshEnabled,
@@ -35,6 +37,8 @@ export function Settings({ config, setConfig }: {
 }) {
   const [sleepLogsEnabled, setSleepLogsEnabled] = useState<boolean | null>(null);
   const [sleepLogsSaving, setSleepLogsSaving] = useState(false);
+  const [keepRollback, setKeepRollbackState] = useState<boolean | null>(null);
+  const [keepRollbackSaving, setKeepRollbackSaving] = useState(false);
   const setBottomScreenBrightness = useDebouncedApply(
     async () => (await getConfig()).bottomScreenBrightness,
     (value) => setConfig((current) => (current ? { ...current, bottomScreenBrightness: value } : current)),
@@ -55,6 +59,14 @@ export function Settings({ config, setConfig }: {
     getSleepLogsEnabled()
       .then((enabled) => { if (!cancelled) setSleepLogsEnabled(enabled); })
       .catch(() => { if (!cancelled) setSleepLogsEnabled(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getKeepRollback()
+      .then((state) => { if (!cancelled) setKeepRollbackState(state.enabled); })
+      .catch(() => { if (!cancelled) setKeepRollbackState(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -175,6 +187,19 @@ export function Settings({ config, setConfig }: {
       setSleepLogsSaving(false);
     }
   };
+  const setKeepRollback = async (enabled: boolean) => {
+    const previous = keepRollback ?? false;
+    setKeepRollbackState(enabled);
+    setKeepRollbackSaving(true);
+    try {
+      setKeepRollbackState((await applyKeepRollback(enabled)).enabled);
+    } catch (error) {
+      setKeepRollbackState(previous);
+      toaster.toast({ title: t("settings.keepRollbackError"), body: friendlyError(error) });
+    } finally {
+      setKeepRollbackSaving(false);
+    }
+  };
   return (
     <>
       <PanelSection title={t("settings.controller")}>
@@ -194,6 +219,13 @@ export function Settings({ config, setConfig }: {
           onChange={setSleepMode}
         />
         <ToggleRow label={t("settings.enableSsh")} value={!!config.sshEnabled} onChange={setSshEnabled} />
+        <ToggleRow
+          label={t("settings.keepRollback")}
+          description={t("settings.keepRollbackDescription")}
+          value={keepRollback ?? false}
+          disabled={keepRollback === null || keepRollbackSaving}
+          onChange={(enabled) => { void setKeepRollback(enabled); }}
+        />
         <Field label={t("settings.osVersion")} description={config.osVersion || t("common.unknown")} />
         <Field label={t("settings.ablVersion")} description={config.ablVersion || t("common.unknown")} />
       </PanelSection>
