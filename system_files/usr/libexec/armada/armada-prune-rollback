@@ -30,13 +30,26 @@ while IFS= read -r line; do
     fi
 done <<< "${status}"
 
-if (( rollback < 0 )); then
+# `rpm-ostree apply-live` leaves a ref that pins a whole OS tree; once its base is no longer the booted
+# deployment it only wastes space (nothing removes it otherwise).
+stale_live=""
+if "${ostree}" refs --repo="${repo}" 2>/dev/null | grep -qx 'rpmostree/live-apply'; then
+    booted=$(awk '/^\* / {print $3; exit}' <<< "${status}"); booted="${booted%.*}"
+    live_parent=$("${ostree}" show --repo="${repo}" rpmostree/live-apply 2>/dev/null | awk '/^Parent:/ {print $2}')
+    [[ -n "${live_parent}" && "${live_parent}" != "${booted}" ]] && stale_live=1
+fi
+
+if (( rollback < 0 )) && [[ -z "${stale_live}" ]]; then
     log "no rollback deployment"
     exit 0
 fi
 
-log "removing rollback deployment ${rollback}"
-"${ostree}" admin undeploy "${rollback}" || die "ostree admin undeploy ${rollback} failed"
+if (( rollback >= 0 )); then
+    log "removing rollback deployment ${rollback}"
+    "${ostree}" admin undeploy "${rollback}" || die "ostree admin undeploy ${rollback} failed"
+fi
+
+[[ -n "${stale_live}" ]] && log "removing stale apply-live ref"
 
 if [[ -n "${ARMADA_PRUNE_SKIP_LAYERS:-}" ]]; then
     exit 0
@@ -45,6 +58,7 @@ fi
 # /sysroot is read-only on bootc; remount only inside a private namespace.
 log "pruning orphaned layers"
 unshare -m sh -c "mount -o remount,rw /sysroot \
+    ${stale_live:+&& '${ostree}' refs --repo='${repo}' --delete rpmostree/live-apply} \
     && '${ostree}' container image prune-layers --repo='${repo}' \
     && '${ostree}' prune --repo='${repo}' --refs-only" \
     || die "layer pruning failed"
