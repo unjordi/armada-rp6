@@ -49,6 +49,9 @@ export const setRgbSyncBrightness = (enabled: boolean) => call<[boolean], RgbCon
 export const getRgbChargeIndicatorEnabled = () => call<[], { enabled: boolean }>("get_rgb_charge_indicator_enabled");
 export const setRgbChargeIndicatorEnabled = (enabled: boolean) =>
   call<[boolean], { enabled: boolean }>("set_rgb_charge_indicator_enabled", enabled);
+// Presence-file toggle: keeps the previous OS deployment after updates.
+export const getKeepRollback = () => call<[], { enabled: boolean }>("get_keep_rollback");
+export const setKeepRollback = (enabled: boolean) => call<[boolean], { enabled: boolean }>("set_keep_rollback", enabled);
 export const getControllerState = () => call<[], CalibrationState>("get_controller_state");
 export const saveCalibration = (capture: Capture) => call<[Capture], CalibrationState>("save_calibration", capture);
 export const resetCalibration = () => call<[], CalibrationState>("reset_calibration");

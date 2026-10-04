@@ -30,6 +30,8 @@ from armada_control.system import (
     set_desktop_mode,
     set_sleep_mode,
     set_sleep_logs_enabled,
+    get_keep_rollback,
+    set_keep_rollback,
     set_ssh_enabled,
 )
 from armada_control.tweaks import load_compat_applied, save_compat_applied, save_tweaks
@@ -134,6 +136,12 @@ class Plugin:
 
     async def set_rgb_charge_indicator_enabled(self, enabled):
         return await asyncio.to_thread(set_rgb_charge_indicator_enabled, enabled)
+
+    async def get_keep_rollback(self):
+        return await asyncio.to_thread(get_keep_rollback)
+
+    async def set_keep_rollback(self, enabled):
+        return await asyncio.to_thread(set_keep_rollback, enabled)
 
     async def get_controller_state(self):
         return await asyncio.to_thread(controller_state)

@@ -1,0 +1,8 @@
+[Unit]
+Description=Remove the ostree rollback deployment after boot
+
+[Timer]
+OnBootSec=10min
+
+[Install]
+WantedBy=timers.target
