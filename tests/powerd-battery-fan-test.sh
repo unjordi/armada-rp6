@@ -12,13 +12,6 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# The floor must be applied on top of the CPU/GPU curve in the awake fan loop.
-grep -Fq 'target = max(target, self.battery_target_pwm())' \
-    "$ROOT/system_files/usr/libexec/armada/armada-powerd" || {
-    printf 'FAIL: fan_tick no longer applies the battery floor on top of the CPU/GPU curve\n' >&2
-    exit 1
-}
-
 # armada#29: the Reload D-Bus method (what Armada Control's battery-fan
 # toggle triggers via action_write_config's "armada-power reload") must
 # re-read [battery_fan], not just __init__ -- otherwise flipping the toggle
@@ -151,6 +144,45 @@ power3.load_battery_fan_config()
 check("no [battery_fan] section -> inert", power3.battery_enabled is False)
 set_battery(45, "Charging")
 check("missing section returns 0", power3.battery_target_pwm() == 0)
+
+# --- fan_tick applies the floor ON TOP of the CPU/GPU curve and of upstream's
+# charging floor (target = max(curve, charging_pwm if on AC, battery floor)) ---
+powerd.FACTORY_CONFIG_FILE = powerd.Path(os.path.join(SHARE, "power-profiles.conf"))
+pwm_path = os.path.join(WORK, "pwm1")
+
+
+def tick(curve_pwm, temp_c, status, on_ac, charging_pwm=0):
+    p = make_power()
+    p.load_battery_fan_config()
+    p.fan_config.update({"smoothing": 0.0, "ramp_up": 255, "ramp_down": 255,
+                         "charging_pwm": charging_pwm})
+    p.fan_pwm = powerd.Path(pwm_path)
+    p.fan_enable = None
+    p.fan_hwmon = None
+    p.connection = None
+    p.suspended = False
+    p.smoothed_temp = 0.0
+    p.last_pwm = 51
+    p.perf_tick = lambda: None
+    p.read_temp = lambda: 50
+    p.target_pwm = lambda t: curve_pwm
+    powerd.external_power_online = lambda: on_ac
+    set_battery(temp_c, status)
+    p.fan_tick()
+    with open(pwm_path) as f:
+        return int(f.read().strip())
+
+
+check("tick: warm battery lifts a quiet CPU curve (40 C -> 144)",
+      tick(64, 40, "Discharging", False) == 144)
+check("tick: a louder CPU curve wins over the battery floor",
+      tick(200, 40, "Discharging", False) == 200)
+check("tick: cool battery leaves the CPU curve alone",
+      tick(64, 30, "Discharging", False) == 64)
+check("tick: upstream charging floor still applies with a cool battery",
+      tick(64, 30, "Charging", True, charging_pwm=96) == 96)
+check("tick: battery floor + boost beats the charging floor when warm",
+      tick(64, 40, "Charging", True, charging_pwm=96) == 176)
 
 if failures:
     print(f"\n{len(failures)} battery-fan check(s) failed", file=sys.stderr)

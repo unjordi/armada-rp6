@@ -1,5 +1,5 @@
 #!/bin/bash
-# 41-armada-wake-probe — SOLO-LOG instrumentation to NAME the wake source of the
+# 41-armada-wake-probe — log-only instrumentation to NAME the wake source of the
 # deep-suspend wake loop on ArmadaOS (Snapdragon 8 Gen 2, aarch64).
 #
 # The existing wake-ledger (40-armada-wake-ledger) reports wake_irq=none because the
@@ -78,8 +78,8 @@ if [[ "${1:-}" == post ]]; then
         # pm_wakeup_irq (in case it names the source this time).
         printf 'pm_wakeup_irq=%s\n' "$(cat "$sysfs_root/power/pm_wakeup_irq" 2>/dev/null)"
 
-        # DELTA of interrupts BY NAME: report sources whose count INCREASED during
-        # the sleep, ordered by largest delta (top 15). Match by NAME, not number.
+        # DELTA of interrupts BY NAME: sources whose count INCREASED during the
+        # sleep, smallest delta first (top 25). Match by NAME, not number.
         printf '\n--- interrupt delta (by label, smallest increases first = wake candidates) ---\n'
         if [[ -r "$run_dir/interrupts.pre" && -r "$proc_interrupts" ]]; then
             # Every source whose count ROSE across the sleep, SMALLEST delta first: in deep the CPUs are
