@@ -19,11 +19,8 @@ export default definePlugin(() => {
   const persistHandledGames = () => {
     saveCompatApplied(handledGameAppids()).catch(() => {});
   };
-  // armada#25 (Camino 2 — INLINE, replaces the old position:fixed overlay):
-  // patch Steam's own top-bar row so the live power-profile glyph flows as a
-  // real sibling between the battery and the clock. Immune to clock/battery
-  // width changes (1↔2-digit hour, charging icon, % width). See
-  // lib/topBarProfileIndicator.tsx. Disposed in onDismount below.
+  // Live power-profile glyph in Steam's top bar, between battery and clock
+  // (lib/topBarProfileIndicator.tsx). Disposed in onDismount below.
   const removeTopBarGlyph = installTopBarProfileIndicator();
   let cancelled = false;
   const handledRequest = getCompatApplied()
@@ -79,8 +76,7 @@ export default definePlugin(() => {
   return {
     name: "Armada Control",
     content: <Content />,
-    // armada#25 (partial -- see ActiveProfileBadge.tsx for what this does
-    // and doesn't cover): live active-power-profile indicator.
+    // Live active-power-profile marker in this plugin's own header.
     titleView: <ActiveProfileBadge />,
     onDismount() {
       cancelled = true;
