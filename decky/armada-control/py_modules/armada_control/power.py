@@ -10,9 +10,8 @@ POWER_CONFIG = Path("/etc/armada/power-profiles.conf")
 FACTORY_POWER_CONFIG = Path("/usr/share/armada/power-profiles.conf")
 PROFILES = ("eco", "balanced", "performance")
 # Profile armada-powerd is actually running right now -- may differ from the
-# [general] default_profile until a reload/reboot catches up. Same file
-# fan_curves.py reads for the Fans tab's "activeProfile" (kept as a separate
-# read here, matching this module's existing style of owning its own paths).
+# [general] default_profile until a reload/reboot catches up. fan_curves.py
+# reads it through active_profile() below, so both tabs agree.
 STATE_FILE = Path("/var/lib/armada/powerd.state")
 
 

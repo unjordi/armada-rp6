@@ -19,9 +19,15 @@ export const EFFECT_OPTIONS: { data: RgbEffect; labelKey: TranslationKey }[] = [
 ];
 
 // Effects that paint the configured base color (the rest derive their own
-// hue -- screen_sync samples it from the screen, so it is NOT here and the
-// color and saturation sliders are disabled for it).
+// hue, so the color slider is disabled for them).
 export const USES_BASE_COLOR: readonly RgbEffect[] = ["static", "breathing"];
+
+// Effects the saturation slider applies to: armada-rgb applies it to the base
+// color and to the hues an effect synthesizes. screen_sync shows the colors it
+// captured, so it is the one effect without it.
+export const USES_SATURATION: readonly RgbEffect[] = EFFECT_OPTIONS
+  .map((option) => option.data)
+  .filter((effect) => effect !== "screen_sync");
 
 // Effects whose motion the speed slider controls. State-driven effects set
 // their own cadence, and armada-rgb ignores --speed for screen_sync, so it is
