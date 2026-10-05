@@ -66,6 +66,9 @@ trigger="${psy}-charging-orange-full-green"
 # Multicolor group nodes for the two HTR3212 stick controllers (rgb:l1..l4 /
 # rgb:r1..r4), and the keep_alive knob on each bound htr3212 controller.
 indicator_leds_glob=${ARMADA_RGB_INDICATOR_LEDS:-"$sysfs_root/class/leds/rgb:l? $sysfs_root/class/leds/rgb:r?"}
+proc_interrupts=${ARMADA_PROC_INTERRUPTS:-/proc/interrupts}
+# Written by dark-resume-lib (suspend-dispatch) before each dark-resume round.
+pwrkey0_file=${ARMADA_DARK_RESUME_PWRKEY0:-/run/armada/dark-resume.pwrkey0}
 keep_alive_glob=${ARMADA_RGB_KEEPALIVE:-"$sysfs_root/bus/i2c/drivers/htr3212/*/keep_alive"}
 
 [[ "${2:-}" == suspend ]] || exit 0
@@ -112,14 +115,25 @@ is_charging() {
 # ordering. A self-wake mid-charge (armada QG-8-b) reports no attributable IRQ
 # ("none"); the power button is pmic_pwrkey. Anything that is NOT the power key
 # -- self-wake, rtc, unknown -- counts as NON-user so the indicator is kept up.
+# The pmic_pwrkey counter delta (see below) catches a button press reported as
+# "none".
 was_user_wake() {
-    local irq name
+    local irq name pk0 pk1
     irq=$(cat "$sysfs_root/power/pm_wakeup_irq" 2>/dev/null)
-    name=$(awk -v i="${irq}:" '$1 == i {print $NF}' "${ARMADA_PROC_INTERRUPTS:-/proc/interrupts}" 2>/dev/null)
+    name=$(awk -v i="${irq}:" '$1 == i {print $NF}' "$proc_interrupts" 2>/dev/null)
     case "$name" in
         *pwrkey*) return 0 ;;
-        *)        return 1 ;;
     esac
+    # A power-button wake can also be reported as "none" (measured 2026-10-03).
+    # dark-resume-lib records the pmic_pwrkey counter before each round; a delta
+    # means the button was pressed.
+    if [[ -r "$pwrkey0_file" ]]; then
+        pk0=$(<"$pwrkey0_file")
+        pk1=$(awk '$NF == "pmic_pwrkey" { for (i = 2; i < NF; i++) if ($i ~ /^[0-9]+$/) s += $i } END { print s + 0 }' \
+            "$proc_interrupts" 2>/dev/null)
+        [[ "$pk0" =~ ^[0-9]+$ ]] && (( pk1 > pk0 )) && return 0
+    fi
+    return 1
 }
 
 # Stop the daemon so it stops reclaiming the trigger; record that we did.
@@ -207,18 +221,20 @@ case "${1:-}" in
         seed_current_charge
         ;;
     post)
-        # If the indicator is on, a charger is still attached, and this was NOT
-        # a user wake (power button), the device woke on its own -- a mid-charge
-        # self-wake (armada QG-8-b), an rtc/background wake -- with the screen
-        # still off. Handing the ring back to the daemon here is exactly what
-        # made the overnight charge indicator disappear: the daemon repaints the
-        # user's effect (e.g. screen_sync -> the dark screen -> LEDs go dark) and
-        # the charge color is gone until the next sleep. So keep the indicator
-        # up instead: re-seed the current charge color and leave the trigger
-        # armed + daemon stopped (the marker persists), so the charge status
-        # survives the self-wake. The full restore below runs on the REAL user
-        # wake (power button) or once the charger is unplugged.
-        if indicator_enabled && is_charging && ! was_user_wake; then
+        # If the indicator is on and this was NOT a user wake (power button), the
+        # device woke on its own -- a mid-charge self-wake (armada QG-8-b), an
+        # rtc/background wake, or a dark-resume round (suspend-dispatch sleeps
+        # again right after) -- with the screen still off. Handing the ring back
+        # to the daemon here is what made the overnight charge indicator
+        # disappear (the daemon repaints the user's effect, e.g. screen_sync ->
+        # dark screen -> LEDs go dark). So keep the indicator up: re-seed the
+        # CURRENT state (amber/green, or blank on battery -- also when the
+        # charger was just unplugged, so no flash of the user's colour) and leave
+        # the trigger armed + daemon stopped (the marker persists). The full
+        # restore below runs on the REAL user wake (power button) or when
+        # dark-resume-lib forces it for the final non-user wake
+        # (ARMADA_RGB_FORCE_RESTORE=1).
+        if [[ "${ARMADA_RGB_FORCE_RESTORE:-0}" != 1 ]] && indicator_enabled && ! was_user_wake; then
             set_keep_alive 1
             set_trigger "$trigger"
             seed_current_charge

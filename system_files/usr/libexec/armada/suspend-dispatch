@@ -28,11 +28,24 @@ else
 fi
 
 # Real suspend: prefer systemd-sleep so its sleep hooks and process freeze run.
-if [[ -n "${ARMADA_SYSTEMD_SLEEP:-}" ]]; then
-    exec "$ARMADA_SYSTEMD_SLEEP" suspend "$@"
+sleep_bin=${ARMADA_SYSTEMD_SLEEP:-}
+if [[ -z "$sleep_bin" ]]; then
+    for b in /usr/lib/systemd/systemd-sleep /lib/systemd/systemd-sleep; do
+        [[ -x "$b" ]] && { sleep_bin=$b; break; }
+    done
 fi
-for sleep_bin in /usr/lib/systemd/systemd-sleep /lib/systemd/systemd-sleep; do
-    [[ -x "$sleep_bin" ]] && exec "$sleep_bin" suspend "$@"
-done
+if [[ -n "$sleep_bin" ]]; then
+    # Dark resume (deep only, per-device opt-in): keep user sessions frozen and
+    # sleep again while the only wake reason was the charger. Any failure to
+    # set it up falls through to today's plain suspend. See dark-resume-lib.
+    if [[ "$mode" == deep && "${ARMADA_DARK_RESUME:-0}" == 1 ]]; then
+        if source "${ARMADA_DARK_RESUME_LIB:-/usr/lib/armada/dark-resume-lib}" 2>/dev/null; then
+            dark_resume_loop "$sleep_bin" "$@"
+            exit $?
+        fi
+        echo "suspend-dispatch: dark-resume lib missing; plain suspend" >&2
+    fi
+    exec "$sleep_bin" suspend "$@"
+fi
 # No systemd-sleep found: write the state directly rather than leave sleep dead.
 echo mem > /sys/power/state
