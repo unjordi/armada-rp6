@@ -19,8 +19,21 @@ dr_log=${ARMADA_DARK_RESUME_LOG:-/var/lib/armada/wake-ledger.log}
 dr_systemctl=${ARMADA_SYSTEMCTL:-systemctl}
 dr_hook56=${ARMADA_DARK_RESUME_HOOK56:-/usr/lib/systemd/system-sleep/56-armada-rgb-suspend-charging}
 dr_pwrkey0=${ARMADA_DARK_RESUME_PWRKEY0:-/run/armada/dark-resume.pwrkey0}
-dr_supplies=${ARMADA_DARK_RESUME_SUPPLIES:-"usb wireless"}
+# External supplies whose `online` changes on plug/unplug. Detected by TYPE, not
+# name: on the RP6 they are qcom-battmgr-usb / qcom-battmgr-wls (+ the ucsi
+# source), not "usb"/"wireless" (measured 2026-10-05).
+dr_supplies=${ARMADA_DARK_RESUME_SUPPLIES:-}
+if [[ -z "$dr_supplies" ]]; then
+    for _s in "$dr_sysfs"/class/power_supply/*; do
+        [[ -r "$_s/online" ]] || continue
+        case "$(cat "$_s/type" 2>/dev/null)" in
+            USB|Wireless|Mains) dr_supplies+="${dr_supplies:+ }${_s##*/}" ;;
+        esac
+    done
+    unset _s
+fi
 dr_settle_ticks=${ARMADA_DARK_RESUME_SETTLE_TICKS:-30}   # x0.1 s
+dr_online_ticks=${ARMADA_DARK_RESUME_ONLINE_TICKS:-20}   # x0.1 s
 
 # Sum of the per-CPU counters of the IRQ line whose LAST column is the label.
 irq_count() {
@@ -28,7 +41,7 @@ irq_count() {
         "$dr_interrupts" 2>/dev/null
 }
 
-# "<usb><wireless>" online flags, "-" for a supply that does not exist. Prints
+# Concatenated online flags of $dr_supplies, "-" for an unreadable one. Prints
 # "?" when NO supply is readable (state unknown -> callers must not dark-resume).
 charger_online() {
     local s v out="" any=0
@@ -66,6 +79,21 @@ settle_battery_status() { # $1 = charger_online string
     return 0
 }
 
+# battmgr updates the supplies' `online` asynchronously after resume (ADSP
+# notification -> work), so an unchanged reading right after waking does not yet
+# mean "not the charger". Wait (<=2 s) for it to differ from $1; a button press
+# meanwhile ends the wait (the caller re-checks the counter).
+wait_online_change() { # $1 = pre-sleep online string, $2 = pwrkey count after wake
+    local t=0 now
+    while (( t++ < dr_online_ticks )); do
+        now=$(charger_online)
+        [[ "$now" != "$1" ]] && { printf '%s' "$now"; return 0; }
+        (( $(irq_count pmic_pwrkey) != $2 )) && break
+        sleep 0.1
+    done
+    charger_online
+}
+
 # B1 (blank the panel before the freeze) is not implemented yet.
 display_off_session() { :; }
 display_on_session()  { :; }
@@ -89,6 +117,10 @@ dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
         printf '%s\n' "$pk0" >"$dr_pwrkey0" 2>/dev/null
         SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=0 "$bin" suspend "$@"; rc=$?
         pk1=$(irq_count pmic_pwrkey); on1=$(charger_online); name=$(wake_irq_name)
+        if (( rc == 0 && pk1 == pk0 )) && [[ "$name" != *pwrkey* && "$name" != *rtc* && "$name" != *alarm* &&
+              "$on0" != '?' && "$on1" == "$on0" ]]; then
+            on1=$(wait_online_change "$on0" "$pk1"); pk1=$(irq_count pmic_pwrkey)
+        fi
         if (( rc != 0 )); then reason=failed
         elif (( pk1 > pk0 )) || [[ "$name" == *pwrkey* ]]; then reason=user
         elif [[ "$name" == *rtc* || "$name" == *alarm* ]]; then reason=rtc
@@ -110,9 +142,11 @@ dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
         fi
     done
 
-    # The hooks' own `post` kept the charge indicator up for the dark rounds;
-    # a final non-user wake must hand the LEDs back to the user's lighting.
-    if (( rounds > 0 )) && [[ "$reason" != user ]]; then
+    # Inside the loop the hook's `post` keeps the charge indicator up on every
+    # non-user wake (the next thing is usually another sleep); so whenever the
+    # loop ends in a FULL resume that was not the power button -- rtc, unknown,
+    # cap, failure, even on the first round -- hand the LEDs back explicitly.
+    if [[ "$reason" != user ]]; then
         ARMADA_RGB_FORCE_RESTORE=1 "$dr_hook56" post suspend 2>/dev/null || true
     fi
     return "$rc"

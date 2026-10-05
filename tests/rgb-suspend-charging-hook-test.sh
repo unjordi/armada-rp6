@@ -116,6 +116,7 @@ run_hook() { # $1=pre|post  $2=suspend|hibernate  [$3=rgb_tool override]
         ARMADA_RGB_INDICATOR_LEDS="$LEDS_GLOB" \
         ARMADA_RGB_KEEPALIVE="$KA_GLOB" \
         ARMADA_PROC_INTERRUPTS="$fake_int" \
+        ARMADA_DARK_RESUME_PWRKEY0="${ARMADA_DARK_RESUME_PWRKEY0:-$tmp/no-dark-resume-round}" \
         RGB_CALLS="$rgb_calls" \
         SYSTEMCTL_LOG="$sc_log" \
         SYSTEMCTL_ACTIVE="$sc_active_flag" \
@@ -308,17 +309,26 @@ run_hook post suspend
 check "post+self-wake+full: keeps green (0 255 0)" "$(intensities)" "0 255 0"
 check "post+self-wake+full: trigger stays armed"   "$(triggers)" "$TRIGGER"
 
-# 18) post + SELF-WAKE but DISCHARGING (charger yanked while asleep) -> KEEP the
-#     indicator up, blanked: in a dark-resume round the next thing is another
-#     sleep, so handing the ring back to the daemon would flash the user's colour
-#     on a dark screen. The full restore is owed to the real wake / FORCE_RESTORE.
+# 18) post + SELF-WAKE but DISCHARGING (charger yanked while asleep), OUTSIDE a
+#     dark-resume round -> RESTORE (nothing to indicate; the device is awake).
 reset_nodes; set_indicator 1; set_charge Discharging 55; set_self_wake; : >"$marker"; service_inactive
 for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
 run_hook post suspend
-check "post+self-wake+discharging: trigger stays armed (no flash)" "$(triggers)" "$TRIGGER"
-check "post+self-wake+discharging: LEDs blanked (0 0 0)"            "$(intensities)" "0 0 0"
-check "post+self-wake+discharging: keep_alive stays 1"              "$(keepalives)" "1"
-grep_absent "post+self-wake+discharging: daemon NOT restarted"      "$sc_log" "^start "
+check "post+self-wake+discharging: trigger disarmed (restore)" "$(triggers)" "none"
+check "post+self-wake+discharging: keep_alive cleared"        "$(keepalives)" "0"
+grep_ok "post+self-wake+discharging: daemon restarted"        "$sc_log" "^start armada-rgb\.service$"
+
+# 18d) same, but INSIDE a dark-resume round (dark-resume-lib wrote pwrkey0, counter
+#      unchanged) -> KEEP the indicator up, blanked: the next thing is another
+#      sleep, and restoring would flash the user's colour on a dark screen.
+reset_nodes; set_indicator 1; set_charge Discharging 55; set_self_wake; : >"$marker"; service_inactive
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+printf '0\n' >"$tmp/pwrkey0-round"
+ARMADA_DARK_RESUME_PWRKEY0="$tmp/pwrkey0-round" run_hook post suspend
+check "post+dark-round+discharging: trigger stays armed (no flash)" "$(triggers)" "$TRIGGER"
+check "post+dark-round+discharging: LEDs blanked (0 0 0)"            "$(intensities)" "0 0 0"
+check "post+dark-round+discharging: keep_alive stays 1"              "$(keepalives)" "1"
+grep_absent "post+dark-round+discharging: daemon NOT restarted"      "$sc_log" "^start "
 
 # 18b) ARMADA_RGB_FORCE_RESTORE=1 (dark-resume-lib, final non-user wake) -> full
 #      restore even on a self-wake while still charging.

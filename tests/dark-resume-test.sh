@@ -31,6 +31,9 @@ bump() { local c; c=$(awk '$NF=="pmic_pwrkey"{print $2}' "$INTERRUPTS"); printf 
 case "$ev" in
     usb=*) echo "${ev#usb=}" >"$SYSFS/class/power_supply/usb/online"
            if [[ "${ev#usb=}" == 1 ]]; then echo Charging; else echo Discharging; fi >"$SYSFS/class/power_supply/battery/status" ;;
+    usb-late=*) # battmgr publishes `online` a moment AFTER the resume returns
+           ( sleep 0.2; echo "${ev#usb-late=}" >"$SYSFS/class/power_supply/usb/online"
+             echo Charging >"$SYSFS/class/power_supply/battery/status" ) & ;;
     pwrkey) bump ;;
     pwrkey-irq) bump; echo 21 >"$SYSFS/power/pm_wakeup_irq" ;;
     rtc) echo 200 >"$SYSFS/power/pm_wakeup_irq" ;;
@@ -58,6 +61,7 @@ chmod +x "$tmp"/{systemd-sleep,systemctl,hook56,device-env}
 # $1.. = events. Env FAKE_* / extra ARMADA_* may be exported by the caller.
 run() {
     mkdir -p "$sysfs/power" "$sysfs/class/power_supply/usb" "$sysfs/class/power_supply/battery"
+    echo USB >"$sysfs/class/power_supply/usb/type"; echo Battery >"$sysfs/class/power_supply/battery/type"
     : >"$sysfs/power/pm_wakeup_irq"; echo 0 >"$sysfs/class/power_supply/usb/online"
     echo Discharging >"$sysfs/class/power_supply/battery/status"
     printf ' 21:  0  0  pmic_pwrkey\n200:  0  0  pm8xxx_rtc_alarm\n' >"$interrupts"
@@ -69,7 +73,7 @@ run() {
         ARMADA_SYSTEMD_SLEEP="$tmp/systemd-sleep" ARMADA_DARK_RESUME_LIB="${LIB_OVERRIDE:-$LIB}" \
         ARMADA_SYSFS_ROOT="$sysfs" ARMADA_PROC_INTERRUPTS="$interrupts" ARMADA_DARK_RESUME_LOG="$ledger" \
         ARMADA_SYSTEMCTL="$tmp/systemctl" ARMADA_DARK_RESUME_HOOK56="$tmp/hook56" \
-        ARMADA_DARK_RESUME_PWRKEY0="$pk_file" ARMADA_DARK_RESUME_SETTLE_TICKS=2 \
+        ARMADA_DARK_RESUME_PWRKEY0="$pk_file" ARMADA_DARK_RESUME_SETTLE_TICKS=2 ARMADA_DARK_RESUME_ONLINE_TICKS="${ONLINE_TICKS:-6}" \
         COUNTER="$counter" SLEEP_LOG="$sleep_log" SYSFS="$sysfs" SCRIPT="$script" INTERRUPTS="$interrupts" \
         SC_LOG="$sc_log" HOOK_LOG="$hook_log" \
         timeout 20 bash "$DISPATCH" >/dev/null 2>"$tmp/stderr" || rc=$?
@@ -123,6 +127,18 @@ run none
 check "unknown reason: single sleep call" "$(calls)" 1
 has "unknown reason: reason=unknown" "reason=unknown" "$ledger"
 check "unknown reason: exit 0" "$rc" 0
+has "unknown reason on the FIRST round: LEDs handed back anyway" "post suspend force=1" "$hook_log"
+
+# 4b) the charger's `online` lands ~0.2 s after the resume returns -> still a
+#     charger wake (the lib waits for battmgr instead of calling it unknown).
+run usb-late=1 pwrkey-irq
+check "late online: sleeps again (2 rounds)" "$(calls)" 2
+has "late online: reason=charger" "reason=charger" "$ledger"
+# ... but only within the wait budget: a reading that never changes is unknown.
+ONLINE_TICKS=1 run usb-late=1 pwrkey-irq
+check "late online beyond the budget: single call (full resume)" "$(calls)" 1
+has "late online beyond the budget: reason=unknown" "reason=unknown" "$ledger"
+sleep 0.3   # let the fake's background writer finish before the next run()
 
 # 5) cap: charger flipping every round stops at ARMADA_DARK_RESUME_MAX.
 export ARMADA_DARK_RESUME_MAX=3
@@ -149,6 +165,18 @@ run usb=1 fail
 check "failure after a dark round: propagated" "$rc" 3
 has "failure after a dark round: thawed" "^thaw user.slice" "$sc_log"
 has "failure after a dark round: LEDs handed back" "post suspend force=1" "$hook_log"
+
+# 7a) supplies are found by TYPE, whatever their name (RP6: qcom-battmgr-usb/-wls).
+(
+    rsys="$tmp/rp6sys"; mkdir -p "$rsys/class/power_supply"/{qcom-battmgr-usb,qcom-battmgr-wls,battery}
+    echo USB >"$rsys/class/power_supply/qcom-battmgr-usb/type"; echo 1 >"$rsys/class/power_supply/qcom-battmgr-usb/online"
+    echo Wireless >"$rsys/class/power_supply/qcom-battmgr-wls/type"; echo 0 >"$rsys/class/power_supply/qcom-battmgr-wls/online"
+    echo Battery >"$rsys/class/power_supply/battery/type"
+    export ARMADA_SYSFS_ROOT="$rsys"; unset ARMADA_DARK_RESUME_SUPPLIES
+    # shellcheck source=/dev/null
+    source "$LIB"
+    [[ "$dr_supplies" == "qcom-battmgr-usb qcom-battmgr-wls" && "$(charger_online)" == 10 ]]
+) && echo "ok: RP6 supply names detected by type (online=10)" || { echo "FAIL: supplies by type"; fail=1; }
 
 # 7b) charger state unreadable -> never dark-resume.
 ARMADA_DARK_RESUME_SUPPLIES="nothere" run usb=1

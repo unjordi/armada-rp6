@@ -234,7 +234,12 @@ case "${1:-}" in
         # restore below runs on the REAL user wake (power button) or when
         # dark-resume-lib forces it for the final non-user wake
         # (ARMADA_RGB_FORCE_RESTORE=1).
-        if [[ "${ARMADA_RGB_FORCE_RESTORE:-0}" != 1 ]] && indicator_enabled && ! was_user_wake; then
+        # Discharging only keeps the indicator inside a dark-resume round (the
+        # pwrkey0 file exists only while dark-resume-lib is looping, and the lib
+        # restores on its final non-user wake); outside it, a non-user wake on
+        # battery restores as before.
+        if [[ "${ARMADA_RGB_FORCE_RESTORE:-0}" != 1 ]] && indicator_enabled && ! was_user_wake &&
+            { is_charging || [[ -e "$pwrkey0_file" ]]; }; then
             set_keep_alive 1
             set_trigger "$trigger"
             seed_current_charge
