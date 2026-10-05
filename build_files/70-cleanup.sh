@@ -153,7 +153,7 @@ for required in qcom-firmware atheros-firmware bootc podman skopeo dracut \
     mesa-vulkan-drivers mesa-dri-drivers NetworkManager NetworkManager-wifi \
     pipewire wireplumber bluez plasma-workspace kwin sddm flatpak \
     gamescope-session inputplumber powerdevil fex-emu armada-rgb spectacle wireguard-tools \
-    maliit-keyboard; do
+    maliit-keyboard google-noto-sans-cjk-vf-fonts; do
     rpm -q "$required" >/dev/null || { echo "[70-cleanup] ERROR: $required was removed by the slim pass"; exit 1; }
 done
 

@@ -112,6 +112,7 @@ find /usr/lib/locale -maxdepth 1 -type d ! -name 'es*' ! -name 'en*' ! -name 'C*
 
 dnf5 -y install --setopt=install_weak_deps=False \
     google-noto-sans-vf-fonts \
+    google-noto-sans-cjk-vf-fonts \
     google-noto-sans-thai-vf-fonts \
     google-noto-sans-arabic-vf-fonts \
     google-noto-sans-hebrew-vf-fonts \
