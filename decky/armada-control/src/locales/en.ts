@@ -245,6 +245,8 @@ export const en = {
   "rgb.syncBrightnessDescription": "Scales the lighting's brightness to the panel backlight, on top of whatever effect/color is set above. Disables the Brightness slider while on.",
   "rgb.syncBrightnessError": "Could not change brightness sync",
   "rgb.chargeIndicator": "Charging Indicator",
+  "rgb.syncScale": "LED vs. screen dimming",
+  "rgb.chargeIndicatorBrightness": "Charging indicator brightness",
   "rgb.chargeIndicatorToggle": "Show charging status while asleep",
   "rgb.chargeIndicatorDescription": "While it sleeps and charges, the stick LEDs glow amber (green once full) so you can tell it's charging at a glance.",
   "rgb.chargeIndicatorLoadError": "Could not load charging indicator setting",

@@ -248,6 +248,8 @@ export const es = {
   "rgb.syncBrightnessDescription": "Ajusta el brillo de la iluminación al de la pantalla, sobre el efecto y el color elegidos arriba. Mientras está activado, el control de Brillo queda deshabilitado.",
   "rgb.syncBrightnessError": "No se pudo cambiar la sincronización de brillo",
   "rgb.chargeIndicator": "Indicador de carga",
+  "rgb.syncScale": "Atenuación frente a la pantalla",
+  "rgb.chargeIndicatorBrightness": "Brillo del indicador de carga",
   "rgb.chargeIndicatorToggle": "Mostrar la carga mientras está suspendido",
   "rgb.chargeIndicatorDescription": "Mientras está suspendido y cargando, los LED de los sticks se encienden en ámbar (verde al llenarse) para que veas de un vistazo que está cargando.",
   "rgb.chargeIndicatorLoadError": "No se pudo cargar el ajuste del indicador de carga",

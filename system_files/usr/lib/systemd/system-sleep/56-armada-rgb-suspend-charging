@@ -85,6 +85,19 @@ indicator_enabled() {
     return 1
 }
 
+# Percent of max_brightness for the charge colours (Armada Control slider, same
+# file as `enabled`). Missing or out of 1..100 means full brightness.
+indicator_brightness_pct() {
+    local key value
+    [[ -r "$indicator_config" ]] || { echo 100; return; }
+    while IFS='=' read -r key value; do
+        if [[ "$key" == brightness && "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 100 )); then
+            echo "$value"; return
+        fi
+    done <"$indicator_config"
+    echo 100
+}
+
 set_keep_alive() { # $1 = 0|1
     local f
     for f in $keep_alive_glob; do
@@ -173,7 +186,8 @@ start_daemon() {
 # would glow all night on battery (measured 2026-10: ~2.3 %/h asleep vs ~0.5 %/h
 # before keep_alive). The armed trigger repaints on the plug-in edge.
 seed_current_charge() {
-    local status cap r g b led order ch vals
+    local status cap r g b led order ch vals max level pct
+    pct=$(indicator_brightness_pct)
     status=$(cat "$sysfs_root/class/power_supply/$psy/status" 2>/dev/null) || return 0
     case "$status" in
         Full)
@@ -197,12 +211,14 @@ seed_current_charge() {
             esac
         done
         echo "${vals% }" >"$led/multi_intensity" 2>/dev/null || true
-        # Match the kernel trigger's full brightness so there is no visible step
-        # when it repaints on a later power_supply_changed().
+        # The configured share of max_brightness. A later kernel-trigger repaint
+        # (only while the AP is up) goes back to full brightness.
         if [[ "$r$g$b" == 000 ]]; then
             [[ -w "$led/brightness" ]] && echo 0 >"$led/brightness" 2>/dev/null || true
         elif [[ -w "$led/brightness" && -r "$led/max_brightness" ]]; then
-            cat "$led/max_brightness" >"$led/brightness" 2>/dev/null || true
+            max=$(cat "$led/max_brightness" 2>/dev/null) && [[ "$max" =~ ^[0-9]+$ ]] || continue
+            level=$(( (max * pct + 50) / 100 )); (( level < 1 )) && level=1
+            echo "$level" >"$led/brightness" 2>/dev/null || true
         fi
     done
 }

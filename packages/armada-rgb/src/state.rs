@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 const CONFIG_VERSION: u32 = 1;
 const DEFAULT_SPEED: u16 = 100;
 const MAX_SPEED: u16 = 1000;
+pub(crate) const MIN_SYNC_SCALE: u16 = 10;
+pub(crate) const MAX_SYNC_SCALE: u16 = 200;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +36,10 @@ pub struct LightingConfig {
     /// path rather than any single effect.
     #[serde(default, skip_serializing_if = "is_false")]
     pub sync_brightness: bool,
+    /// LED-vs-screen factor for `sync_brightness`, in percent. `None` (the
+    /// default, omitted when saved) uses the device's `ARMADA_RGB_SYNC_SCALE`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_scale: Option<u16>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -64,6 +70,7 @@ impl Default for LightingConfig {
             effect: Effect::Static,
             speed: DEFAULT_SPEED,
             sync_brightness: false,
+            sync_scale: None,
         }
     }
 }
@@ -84,6 +91,11 @@ impl LightingConfig {
         }
         if let Some(correction) = &self.correction {
             correction.validate()?;
+        }
+        if let Some(scale) = self.sync_scale {
+            if !(MIN_SYNC_SCALE..=MAX_SYNC_SCALE).contains(&scale) {
+                bail!("sync scale must be between {MIN_SYNC_SCALE} and {MAX_SYNC_SCALE} percent");
+            }
         }
         if self.speed == 0 || self.speed > MAX_SPEED {
             bail!("speed must be between 1 and {MAX_SPEED}");
@@ -148,6 +160,20 @@ mod tests {
             ..LightingConfig::default()
         };
         assert!(version.validate().is_err());
+    }
+
+    #[test]
+    fn sync_scale_is_optional_bounded_and_round_trips() {
+        let plain: LightingConfig = LightingConfig::default().validate().unwrap();
+        assert!(!serde_json::to_string(&plain).unwrap().contains("sync_scale"), "omitted when unset");
+        let tuned: LightingConfig = LightingConfig { sync_scale: Some(60), ..LightingConfig::default() }
+            .validate()
+            .unwrap();
+        let back: LightingConfig = serde_json::from_str(&serde_json::to_string(&tuned).unwrap()).unwrap();
+        assert_eq!(back.sync_scale, Some(60));
+        for bad in [0, 9, 201] {
+            assert!(LightingConfig { sync_scale: Some(bad), ..LightingConfig::default() }.validate().is_err(), "{bad}");
+        }
     }
 
     #[test]

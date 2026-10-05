@@ -227,6 +227,9 @@ pub struct EffectState {
     /// HW-dependent, so it comes from the device env `ARMADA_RGB_SYNC_SCALE`;
     /// see `device_sync_scale`.
     sync_scale: f64,
+    /// User override of `sync_scale` (the Armada Control slider), as a factor.
+    /// `None` keeps the device value.
+    user_sync_scale: Option<f64>,
     last_left: [u8; 3],
     last_right: [u8; 3],
     screen_sync_warned: bool,
@@ -270,6 +273,7 @@ impl Default for EffectState {
             screen_width: env_u32("ARMADA_RGB_SCREEN_WIDTH", SCREEN_WIDTH_DEFAULT),
             screen_height: env_u32("ARMADA_RGB_SCREEN_HEIGHT", SCREEN_HEIGHT_DEFAULT),
             sync_scale: device_sync_scale(),
+            user_sync_scale: None,
             nv12_plane_align: std::env::var("ARMADA_RGB_NV12_PLANE_ALIGN")
                 .ok()
                 .and_then(|value| value.trim().parse::<usize>().ok())
@@ -426,7 +430,14 @@ impl EffectState {
         // backlight percentage, so scale the LED brightness by the
         // device-specific `sync_scale` factor (from `ARMADA_RGB_SYNC_SCALE`,
         // e.g. 0.88 on the RP6) to match the perceived screen brightness.
-        (f64::from(brightness) * pct * self.sync_scale).round().min(100.0) as u8
+        let factor: f64 = self.user_sync_scale.unwrap_or(self.sync_scale);
+        (f64::from(brightness) * pct * factor).round().min(100.0) as u8
+    }
+
+    /// The user's LED-vs-screen factor in percent (`LightingConfig::sync_scale`),
+    /// or `None` to use the device value. Set every frame from the saved config.
+    pub(crate) fn set_user_sync_scale(&mut self, percent: Option<u16>) {
+        self.user_sync_scale = percent.map(|p| f64::from(p) / 100.0);
     }
 
     /// Screen backlight as a `0.0..=1.0` fraction. Falls back to `1.0`
@@ -1227,6 +1238,22 @@ mod tests {
             ..EffectState::default()
         };
         assert_eq!(state.scale_for_sync(80, true), 40); // 80 * 50% * 1.0
+    }
+
+    #[test]
+    fn user_sync_scale_overrides_the_device_factor_and_clears_back() {
+        let root: PathBuf = fixture_dir("sync-user-scale");
+        backlight_device(&root, "panel.dsi.0", 50, 100);
+        let mut state: EffectState = EffectState {
+            backlight_root: root,
+            backlight_name: None,
+            sync_scale: 0.88,
+            ..EffectState::default()
+        };
+        state.set_user_sync_scale(Some(60));
+        assert_eq!(state.scale_for_sync(80, true), 24); // 80 * 50% * 0.60 (user)
+        state.set_user_sync_scale(None);
+        assert_eq!(state.scale_for_sync(80, true), 35); // back to the device 0.88
     }
 
     #[test]

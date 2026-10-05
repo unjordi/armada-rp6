@@ -37,6 +37,10 @@ enum Command {
         /// Animation speed as a percentage (100 = default).
         #[arg(long)]
         speed: Option<u16>,
+        /// LED-vs-screen factor for brightness sync, in percent (10-200), or
+        /// `default` to go back to the device value.
+        #[arg(long, value_name = "PERCENT|default")]
+        sync_scale: Option<String>,
     },
     /// Turn the stick lights off and save that state.
     Off,
@@ -99,6 +103,7 @@ fn main() -> Result<()> {
             correction,
             effect,
             speed,
+            sync_scale,
         } => {
             let mut config: LightingConfig = controller.get()?;
             config.enabled = true;
@@ -118,6 +123,13 @@ fn main() -> Result<()> {
             }
             if let Some(speed) = speed {
                 config.speed = speed;
+            }
+            if let Some(raw) = sync_scale {
+                config.sync_scale = if raw == "default" {
+                    None
+                } else {
+                    Some(raw.parse::<u16>().map_err(|_| anyhow::anyhow!("--sync-scale: expected a percentage or 'default'"))?)
+                };
             }
             let config: LightingConfig = controller.set(config)?;
             println!("{}", serde_json::to_string_pretty(&config)?);

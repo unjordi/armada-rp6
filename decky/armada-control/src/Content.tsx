@@ -96,7 +96,7 @@ export function Content() {
           { id: "Power", title: tabIcons.Power, content: tabContent(<Power config={config} setConfig={setConfig} />) },
           { id: "Fans", title: tabIcons.Fans, content: tabContent(<Fans setConfig={setConfig} />) },
           ...(config.rgbSupported ? [
-            { id: "RGB", title: tabIcons.RGB, content: tabContent(<RgbLighting />) },
+            { id: "RGB", title: tabIcons.RGB, content: tabContent(<RgbLighting syncScaleDefault={config.rgbSyncScaleDefault ?? 100} />) },
           ] : []),
           { id: "Advanced", title: tabIcons.Advanced, content: tabContent(<Settings config={config} setConfig={setConfig} />) },
         ]}

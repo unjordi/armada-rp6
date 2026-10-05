@@ -374,5 +374,20 @@ check "post+user-wake+charging: trigger disarmed (user's lighting back)" "$(trig
 check "post+user-wake+charging: keep_alive cleared"                      "$(keepalives)" "0"
 grep_ok "post+user-wake+charging: daemon restarted"                      "$sc_log" "^start armada-rgb\.service$"
 
+# Charge-indicator brightness (Armada Control slider): the seed paints at that
+# percent of max_brightness; no key or a bad value keeps the full 255.
+reset_nodes; printf 'enabled=1\nbrightness=30\n' >"$indicator_config"; set_charge Charging 60; service_active
+run_hook pre suspend
+check "brightness=30: amber seeded at 30% of 255"                        "$(brights)" "77"
+reset_nodes; printf 'enabled=1\nbrightness=1\n' >"$indicator_config"; set_charge Full 100; service_active
+run_hook pre suspend
+check "brightness=1: never rounds down to off"                           "$(brights)" "3"
+reset_nodes; printf 'enabled=1\nbrightness=250\n' >"$indicator_config"; set_charge Charging 60; service_active
+run_hook pre suspend
+check "brightness out of range: full brightness"                         "$(brights)" "255"
+reset_nodes; set_indicator 1; set_charge Charging 60; service_active
+run_hook pre suspend
+check "no brightness key: full brightness (as before)"                   "$(brights)" "255"
+
 if (( fail )); then echo "rgb-suspend-charging hook: FAILURES"; exit 1; fi
 echo "PASS: rgb-suspend-charging-hook-test (design A / kernel trigger + QG-8 seed & daemon hand-off + QG-8-b self-wake survival)"

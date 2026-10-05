@@ -1,6 +1,6 @@
 from .controller import CONTROLLER_TYPES, controller_type, inputplumber_targets
 from .power import active_profile, factory_power_defaults, parse_power
-from .rgb import rgb_supported
+from .rgb import rgb_supported, sync_scale_percent
 from .steam import installed_games
 from .system import (
     abl_auto_enabled,
@@ -43,6 +43,7 @@ def build_config(include_games=True):
             "marginPx": env.get("ARMADA_UI_TOPBAR_INDICATOR_MARGIN_PX", ""),
         },
         "rgbSupported": rgb_supported(),
+        "rgbSyncScaleDefault": sync_scale_percent(env.get("ARMADA_RGB_SYNC_SCALE", "")),
         "protonDefaults": [
             default.strip()
             for default in env.get("ARMADA_PROTON_DEFAULTS", "").split(":")

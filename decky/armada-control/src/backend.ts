@@ -39,16 +39,20 @@ export const setRgb = (
   brightness: number,
   effect: RgbEffect,
   speed: number,
+  syncScale: number | null,
 ) =>
-  call<[boolean, string, number, number, string, number], RgbConfig>(
-    "set_rgb", enabled, color, saturation, brightness, effect, speed,
+  call<[boolean, string, number, number, string, number, number | null], RgbConfig>(
+    "set_rgb", enabled, color, saturation, brightness, effect, speed, syncScale,
   );
 // A separate toggle, not part of setRgb: it combines with any effect.
 export const setRgbSyncBrightness = (enabled: boolean) => call<[boolean], RgbConfig>("set_rgb_sync_brightness", enabled);
 // Opt-in gate for the charge indicator shown while asleep.
-export const getRgbChargeIndicatorEnabled = () => call<[], { enabled: boolean }>("get_rgb_charge_indicator_enabled");
+export type ChargeIndicator = { enabled: boolean; brightness: number };
+export const getRgbChargeIndicatorEnabled = () => call<[], ChargeIndicator>("get_rgb_charge_indicator_enabled");
 export const setRgbChargeIndicatorEnabled = (enabled: boolean) =>
-  call<[boolean], { enabled: boolean }>("set_rgb_charge_indicator_enabled", enabled);
+  call<[boolean], ChargeIndicator>("set_rgb_charge_indicator_enabled", enabled);
+export const setRgbChargeIndicatorBrightness = (brightness: number) =>
+  call<[number], ChargeIndicator>("set_rgb_charge_indicator_brightness", brightness);
 // Presence-file toggle: keeps the previous OS deployment after updates.
 export const getKeepRollback = () => call<[], { enabled: boolean }>("get_keep_rollback");
 export const setKeepRollback = (enabled: boolean) => call<[boolean], { enabled: boolean }>("set_keep_rollback", enabled);
