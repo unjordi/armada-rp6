@@ -40,6 +40,8 @@ Available effects: `static`, `breathing` (base color pulsing), `color_cycle`
 `screen_sync` (per-side color sampled from the screen content — an
 ambilight). `--speed` is a percentage where `100` is the default rate (ignored
 by `screen_sync`, which follows live system state instead of a fixed cycle).
+The saturation setting applies to every effect except `screen_sync`, which
+shows the colors it captured.
 
 Brightness-follows-screen-backlight is **not** in this list — it is the
 orthogonal `sync-brightness` modifier below, which composes with *any* of
