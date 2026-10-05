@@ -124,49 +124,25 @@ for json in /usr/share/vulkan/icd.d/*.json; do
     [ -z "$lib" ] || [ -e "$lib" ] || { echo "[70-cleanup] ERROR: $json points at missing $lib"; exit 1; }
 done
 
-# CJK input methods (~59 MB), only if nothing requires them.
-# NOTE: rpm prints "no package requires X" when nothing does, and this filter
-# counts that line as a requirer, so this loop (and the Qt5 one) never removes
-# anything today. Left as is on purpose until the slim audit decides.
-for pkg in libpinyin libpinyin-data anthy anthy-unicode ibus ibus-libpinyin ibus-anthy; do
-    if rpm -q "$pkg" >/dev/null 2>&1; then
-        requires="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -v '^$' || true)"
-        if [ -z "$requires" ]; then
-            dnf5 -y remove --no-autoremove "$pkg"
-        else
-            echo "WARN: $pkg required by: $requires; kept"
-        fi
-    fi
-done
-
-# Qt5 (~34 MB), only if nothing requires it (Plasma uses Qt6). See the NOTE above.
-for pkg in qt5-qtbase qt5-qtdeclarative qt5-qtquickcontrols2; do
-    if rpm -q "$pkg" >/dev/null 2>&1; then
-        requires="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -v '^$' || true)"
-        if [ -z "$requires" ]; then
-            dnf5 -y remove --no-autoremove "$pkg"
-        else
-            echo "WARN: $pkg required by: $requires; kept"
-        fi
-    fi
-done
-
-# Packages the RP6 build does not use (no Heroic, Firefox, printing or toolchain).
-# Each is removed only when nothing else requires it; otherwise it is skipped
-# and logged, never failing the build.
+# Packages the RP6 build does not use (no Heroic, Firefox, printing or toolchain;
+# bazaar is the only user of webkitgtk6.0). Each is removed only when `rpm -e --test`
+# says nothing else depends on it -- that check also sees soname dependencies,
+# which `rpm -q --whatrequires <name>` misses -- so dnf never takes a dependent
+# with it. Order matters: a dependent comes before what it depends on.
 for pkg in \
     heroic-games-launcher \
     firefox \
+    bazaar \
     webkitgtk6.0 webkit2gtk4.1 webkit2gtk3 \
-    cups cups-filters cups-pk-helper cups-browsed \
-    gcc gcc-c++ cpp make automake autoconf libtool ; do
+    cups-pk-helper cups-browsed cups-filters cups \
+    gcc-c++ gcc cpp make automake autoconf libtool ; do
     rpm -q "$pkg" >/dev/null 2>&1 || continue
-    req="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -vE '^no package|^$' || true)"
-    if [ -z "$req" ]; then
-        echo "  slim: removing $pkg (nothing requires it)"
-        dnf5 -y remove --no-autoremove "$pkg" || true
+    if blockers="$(rpm -e --test "$pkg" 2>&1)"; then
+        echo "  slim: removing $pkg"
+        dnf5 -y remove --no-autoremove "$pkg"
     else
-        echo "  slim: keeping $pkg, required by: $req"
+        echo "  slim: keeping $pkg, other packages depend on it:"
+        printf '%s\n' "$blockers" | sed 's/^/    /'
     fi
 done
 
@@ -176,7 +152,8 @@ done
 for required in qcom-firmware atheros-firmware bootc podman skopeo dracut \
     mesa-vulkan-drivers mesa-dri-drivers NetworkManager NetworkManager-wifi \
     pipewire wireplumber bluez plasma-workspace kwin sddm flatpak \
-    gamescope-session inputplumber powerdevil fex-emu armada-rgb spectacle wireguard-tools; do
+    gamescope-session inputplumber powerdevil fex-emu armada-rgb spectacle wireguard-tools \
+    maliit-keyboard; do
     rpm -q "$required" >/dev/null || { echo "[70-cleanup] ERROR: $required was removed by the slim pass"; exit 1; }
 done
 
