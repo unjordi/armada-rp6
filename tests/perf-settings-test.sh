@@ -9,6 +9,14 @@
 
 set -euo pipefail
 
+# The fixtures use the handhelds' 8-core topology (big = 3-7) and pin real
+# affinity to those CPUs, so a smaller host cannot run them. Say so loudly
+# instead of failing on the host (GitHub runners have 4 CPUs).
+if (( $(nproc --all) < 8 )); then
+    echo "::warning::perf-settings-test skipped: needs 8 CPUs, this host has $(nproc --all)"
+    exit 0
+fi
+
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
 WORK="$(mktemp -d)"
