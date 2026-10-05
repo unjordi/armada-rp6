@@ -94,9 +94,42 @@ wait_online_change() { # $1 = pre-sleep online string, $2 = pwrkey count after w
     charger_online
 }
 
-# B1 (blank the panel before the freeze) is not implemented yet.
-display_off_session() { :; }
-display_on_session()  { :; }
+# B1: keep the panel dark through dark rounds. On resume the kernel restores the
+# pre-suspend panel state (DPMS On, old backlight) even with user.slice frozen,
+# and bl_power does not survive the cycle (the panel driver re-enables it), so
+# zero the brightness instead and put it back before thaw. Measured on the RP6
+# 2026-10-05; tests/dark-resume-test.sh "B1". Only touched when exactly one
+# named panel backlight exists (ARMADA_PRIMARY_BACKLIGHT wins); otherwise left
+# alone, which at worst lights the panel during a round, as before.
+dr_bl_save=${ARMADA_DARK_RESUME_BRIGHTNESS:-/run/armada/dark-resume.brightness}
+dr_bl_dir=""
+panel_backlight() {
+    local d found=()
+    if [[ -n "${ARMADA_PRIMARY_BACKLIGHT:-}" ]]; then
+        d="$dr_sysfs/class/backlight/$ARMADA_PRIMARY_BACKLIGHT"
+        [[ -w "$d/brightness" ]] && printf '%s' "$d"
+        return
+    fi
+    for d in "$dr_sysfs"/class/backlight/*; do
+        [[ "${d##*/}" != backlight && -w "$d/brightness" ]] && found+=("$d")
+    done
+    (( ${#found[@]} == 1 )) && printf '%s' "${found[0]}"
+}
+display_off_session() {
+    local v
+    dr_bl_dir=$(panel_backlight); [[ -n "$dr_bl_dir" ]] || return 0
+    # A value left by a run that was killed before restoring wins: it is the real one.
+    [[ -s "$dr_bl_save" ]] && cat "$dr_bl_save" >"$dr_bl_dir/brightness" 2>/dev/null
+    v=$(cat "$dr_bl_dir/brightness" 2>/dev/null) && [[ "$v" =~ ^[0-9]+$ ]] || { dr_bl_dir=""; return 0; }
+    mkdir -p "$(dirname "$dr_bl_save")" 2>/dev/null
+    printf '%s\n' "$v" >"$dr_bl_save" 2>/dev/null || { dr_bl_dir=""; return 0; }
+    echo 0 >"$dr_bl_dir/brightness" 2>/dev/null
+}
+display_on_session() {
+    [[ -n "$dr_bl_dir" && -s "$dr_bl_save" ]] || return 0
+    cat "$dr_bl_save" >"$dr_bl_dir/brightness" 2>/dev/null && rm -f "$dr_bl_save"
+    dr_bl_dir=""
+}
 
 dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
     local bin=$1; shift
@@ -108,7 +141,8 @@ dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
         echo "dark-resume: cannot freeze user.slice; plain suspend" >&2
         exec "$bin" suspend "$@"
     fi
-    trap '"$dr_systemctl" thaw user.slice 2>/dev/null; rm -f "$dr_pwrkey0" 2>/dev/null; display_on_session' EXIT
+    # Brightness back BEFORE thaw, so Steam never runs with the panel at 0.
+    trap 'display_on_session; "$dr_systemctl" thaw user.slice 2>/dev/null; rm -f "$dr_pwrkey0" 2>/dev/null' EXIT
     trap 'exit 143' TERM INT HUP
 
     while :; do

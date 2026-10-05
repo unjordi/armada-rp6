@@ -24,7 +24,7 @@ pk_file="$tmp/pwrkey0"; hook_log="$tmp/hook56.log"
 cat >"$tmp/systemd-sleep" <<'FAKE'
 #!/bin/bash
 n=$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$COUNTER"
-echo "call=$n args=$* freeze_env=${SYSTEMD_SLEEP_FREEZE_USER_SESSIONS:-unset}" >>"$SLEEP_LOG"
+echo "call=$n args=$* freeze_env=${SYSTEMD_SLEEP_FREEZE_USER_SESSIONS:-unset} bl=$(cat "$SYSFS/class/backlight/panel0/brightness" 2>/dev/null)" >>"$SLEEP_LOG"
 : >"$SYSFS/power/pm_wakeup_irq"
 ev=$(sed -n "${n}p" "$SCRIPT"); ev=${ev:-none}
 bump() { local c; c=$(awk '$NF=="pmic_pwrkey"{print $2}' "$INTERRUPTS"); printf ' 21:  %d  0  pmic_pwrkey\n200:  0  0  pm8xxx_rtc_alarm\n' $((c+1)) >"$INTERRUPTS"; }
@@ -43,7 +43,7 @@ exit 0
 FAKE
 cat >"$tmp/systemctl" <<'FAKE'
 #!/bin/bash
-echo "$*" >>"$SC_LOG"
+echo "$* bl=$(cat "$SYSFS/class/backlight/panel0/brightness" 2>/dev/null)" >>"$SC_LOG"
 [[ "$1" == freeze && -n "${FAKE_FREEZE_FAIL:-}" ]] && exit 1
 exit 0
 FAKE
@@ -65,6 +65,10 @@ run() {
     : >"$sysfs/power/pm_wakeup_irq"; echo 0 >"$sysfs/class/power_supply/usb/online"
     echo Discharging >"$sysfs/class/power_supply/battery/status"
     printf ' 21:  0  0  pmic_pwrkey\n200:  0  0  pm8xxx_rtc_alarm\n' >"$interrupts"
+    rm -rf "$sysfs/class/backlight"; mkdir -p "$sysfs/class/backlight/panel0" "$sysfs/class/backlight/backlight"
+    echo 500 >"$sysfs/class/backlight/panel0/brightness"; echo 600 >"$sysfs/class/backlight/backlight/brightness"
+    [[ -n "${EXTRA_PANEL:-}" ]] && { mkdir -p "$sysfs/class/backlight/panel1"; echo 300 >"$sysfs/class/backlight/panel1/brightness"; }
+    [[ -n "${STALE_SAVE:-}" ]] && echo "$STALE_SAVE" >"$tmp/blsave" || rm -f "$tmp/blsave"
     : >"$ledger"; : >"$sleep_log"; : >"$sc_log"; : >"$hook_log"; rm -f "$counter" "$pk_file"
     printf '%s\n' "$@" >"$script"
     echo '[s2idle] deep' >"$tmp/mem_sleep"   # the dispatcher overwrites it
@@ -73,7 +77,7 @@ run() {
         ARMADA_SYSTEMD_SLEEP="$tmp/systemd-sleep" ARMADA_DARK_RESUME_LIB="${LIB_OVERRIDE:-$LIB}" \
         ARMADA_SYSFS_ROOT="$sysfs" ARMADA_PROC_INTERRUPTS="$interrupts" ARMADA_DARK_RESUME_LOG="$ledger" \
         ARMADA_SYSTEMCTL="$tmp/systemctl" ARMADA_DARK_RESUME_HOOK56="$tmp/hook56" \
-        ARMADA_DARK_RESUME_PWRKEY0="$pk_file" ARMADA_DARK_RESUME_SETTLE_TICKS=2 ARMADA_DARK_RESUME_ONLINE_TICKS="${ONLINE_TICKS:-6}" \
+        ARMADA_DARK_RESUME_PWRKEY0="$pk_file" ARMADA_DARK_RESUME_BRIGHTNESS="$tmp/blsave" ARMADA_DARK_RESUME_SETTLE_TICKS=2 ARMADA_DARK_RESUME_ONLINE_TICKS="${ONLINE_TICKS:-6}" \
         COUNTER="$counter" SLEEP_LOG="$sleep_log" SYSFS="$sysfs" SCRIPT="$script" INTERRUPTS="$interrupts" \
         SC_LOG="$sc_log" HOOK_LOG="$hook_log" \
         timeout 20 bash "$DISPATCH" >/dev/null 2>"$tmp/stderr" || rc=$?
@@ -209,6 +213,28 @@ has "lib missing: warned" "dark-resume lib missing" "$tmp/stderr"
     settle_battery_status "00"
     wait
 ) && echo "ok: settle_battery_status terminates" || { echo "FAIL: settle_battery_status"; fail=1; }
+
+# B1) the panel stays dark through every dark round. The kernel restores the
+# pre-suspend panel state on resume (measured on the RP6: DPMS On + the old
+# backlight while user.slice is frozen), and bl_power does not survive the
+# cycle, so the lib zeroes the panel brightness and restores it before thaw.
+bl() { cat "$sysfs/class/backlight/$1/brightness"; }
+run usb=1 pwrkey-irq
+check "B1: every sleep call runs with the panel at 0" "$(nlines 'bl=0$' "$sleep_log")" 2
+check "B1: brightness restored on exit" "$(bl panel0)" 500
+check "B1: restored BEFORE thaw (Steam never sees 0)" "$(grep '^thaw' "$sc_log" | grep -o 'bl=[0-9]*')" "bl=500"
+check "B1: generic 'backlight' node untouched" "$(bl backlight)" 600
+check "B1: saved-brightness file removed" "$([[ -e $tmp/blsave ]] && echo yes || echo no)" no
+run rtc
+check "B1: restored after a single rtc round too" "$(bl panel0)" 500
+FAKE_FREEZE_FAIL=1 run usb=1
+check "B1: freeze fails -> brightness restored" "$(bl panel0)" 500
+unset FAKE_FREEZE_FAIL
+EXTRA_PANEL=1 run usb=1 pwrkey-irq
+check "B1: two named panels (ambiguous) -> not touched" "$(nlines 'bl=500$' "$sleep_log")" 2
+unset EXTRA_PANEL
+STALE_SAVE=700 run pwrkey-irq
+check "B1: a value left by a killed run is restored" "$(bl panel0)" 700
 
 if (( fail )); then echo "dark-resume: FAILURES"; exit 1; fi
 echo "PASS: dark-resume-test"
