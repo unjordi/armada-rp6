@@ -82,7 +82,7 @@ if [[ -r "$sleep_config" ]]; then
         fi
     done <"$sleep_config"
 fi
-# Fleet gate for deep: it runs only when BOTH compuertas pass -- (1) the running
+# Fleet gate for deep: it runs only when BOTH gates pass -- (1) the running
 # kernel advertises deep in mem_sleep (checked just below) AND (2) this model is
 # validated for deep. An unvalidated model that asked for deep (a profile that
 # never validates cannot, but a user /etc/armada/sleep.conf override can) falls
