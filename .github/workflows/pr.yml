@@ -27,6 +27,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  tests:
+    name: Unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install test dependencies
+        run: |
+          set -euxo pipefail
+          # armada-powerd imports GLib at module load; the hook tests need jq.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-gi jq
+
+      - name: Run tests/*-test.sh
+        run: |
+          set -uo pipefail
+          failed=()
+          for t in tests/*-test.sh; do
+            echo "::group::${t}"
+            bash "${t}" || failed+=("${t}")
+            echo "::endgroup::"
+          done
+          if [ "${#failed[@]}" -ne 0 ]; then
+            printf '::error::failed: %s\n' "${failed[@]}"
+            exit 1
+          fi
+
   resolve:
     name: Resolve packages
     runs-on: ubuntu-24.04
