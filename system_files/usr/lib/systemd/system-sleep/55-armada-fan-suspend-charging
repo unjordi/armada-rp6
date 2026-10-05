@@ -2,7 +2,7 @@
 # Keep the fan spinning across suspend ONLY while charging, so a battery-heating
 # deep-suspend charge still gets airflow (no CPU is up to run the thermal loop in
 # deep). This is the charging gate for the pwm-fan `suspend_pwm` knob (kernel
-# patch 0502): it writes a static floor before suspend when charging, and 0
+# patch 0533): it writes a static floor before suspend when charging, and 0
 # otherwise, so on battery the fan powers off as usual (no drain). It is a no-op
 # where the knob is absent (kernels without the patch) or where the fan-supply
 # rail is still cut in suspend (DT still has regulator-off-in-suspend).

@@ -57,4 +57,15 @@ run pre s2idle
 [[ "$(val 'c273000.thermal-sensor')" == enabled ]] || { echo "FAIL: s2idle debía ser no-op"; exit 1; }
 [[ -s "$state" ]] && { echo "FAIL: s2idle escribió state (no debe)"; exit 1; }
 
+# --- scenario 3: a pre whose post never ran (systemd-sleep killed) must not lose the
+# list: the next pre sees those sources already "disabled", so only the old list
+# can bring them back. post must re-enable everything disabled by either pre. ---
+run pre deep
+run pre deep
+run post deep
+for name in "${!W[@]}"; do
+  [[ "$(val "$name")" == enabled ]] || { echo "FAIL: $name quedó desarmado tras pre+pre+post"; exit 1; }
+done
+[[ -e "$state" ]] && { echo "FAIL: state no borrado tras pre+pre+post"; exit 1; }
+
 echo "wake-policy-hook-test: OK"
