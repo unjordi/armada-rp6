@@ -125,6 +125,14 @@ display_off_session() {
     printf '%s\n' "$v" >"$dr_bl_save" 2>/dev/null || { dr_bl_dir=""; return 0; }
     echo 0 >"$dr_bl_dir/brightness" 2>/dev/null
 }
+# The panel's actual brightness right now, for the ledger: the evidence that a
+# dark round really kept it dark (B1). "-" when B1 is not driving a panel.
+panel_state() {
+    local v
+    [[ -n "$dr_bl_dir" ]] && v=$(cat "$dr_bl_dir/actual_brightness" 2>/dev/null) && [[ "$v" =~ ^[0-9]+$ ]] \
+        && { printf '%s' "$v"; return; }
+    printf -- '-'
+}
 display_on_session() {
     [[ -n "$dr_bl_dir" && -s "$dr_bl_save" ]] || return 0
     cat "$dr_bl_save" >"$dr_bl_dir/brightness" 2>/dev/null && rm -f "$dr_bl_save"
@@ -163,15 +171,15 @@ dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
             (( ++rounds < dr_max )) || reason=cap
         else reason=unknown
         fi
-        printf '%s dark-resume reason=%s online=%s->%s round=%d\n' \
-            "$(date --iso-8601=seconds)" "$reason" "$on0" "$on1" "$rounds" >>"$dr_log" 2>/dev/null
+        printf '%s dark-resume reason=%s online=%s->%s round=%d panel=%s\n' \
+            "$(date --iso-8601=seconds)" "$reason" "$on0" "$on1" "$rounds" "$(panel_state)" >>"$dr_log" 2>/dev/null
         [[ "$reason" == charger ]] || break
         settle_battery_status "$on1"
         # Pressed during the settle window -> the user wins.
         if (( $(irq_count pmic_pwrkey) != pk1 )); then
             reason=user
-            printf '%s dark-resume reason=user online=%s->%s round=%d\n' \
-                "$(date --iso-8601=seconds)" "$on1" "$on1" "$rounds" >>"$dr_log" 2>/dev/null
+            printf '%s dark-resume reason=user online=%s->%s round=%d panel=%s\n' \
+                "$(date --iso-8601=seconds)" "$on1" "$on1" "$rounds" "$(panel_state)" >>"$dr_log" 2>/dev/null
             break
         fi
     done

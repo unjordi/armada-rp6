@@ -24,6 +24,7 @@ pk_file="$tmp/pwrkey0"; hook_log="$tmp/hook56.log"
 cat >"$tmp/systemd-sleep" <<'FAKE'
 #!/bin/bash
 n=$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$COUNTER"
+cp "$SYSFS/class/backlight/panel0/brightness" "$SYSFS/class/backlight/panel0/actual_brightness" 2>/dev/null
 echo "call=$n args=$* freeze_env=${SYSTEMD_SLEEP_FREEZE_USER_SESSIONS:-unset} bl=$(cat "$SYSFS/class/backlight/panel0/brightness" 2>/dev/null)" >>"$SLEEP_LOG"
 : >"$SYSFS/power/pm_wakeup_irq"
 ev=$(sed -n "${n}p" "$SCRIPT"); ev=${ev:-none}
@@ -235,6 +236,15 @@ check "B1: two named panels (ambiguous) -> not touched" "$(nlines 'bl=500$' "$sl
 unset EXTRA_PANEL
 STALE_SAVE=700 run pwrkey-irq
 check "B1: a value left by a killed run is restored" "$(bl panel0)" 700
+
+# The ledger proves B1 on every real round: each line records the panel's
+# actual brightness read while user.slice is still frozen.
+run usb=1 usb=0 pwrkey-irq
+check "ledger: every round logs the panel" "$(grep -c ' panel=' "$ledger")" 3
+check "ledger: charger rounds read a dark panel" "$(grep 'reason=charger' "$ledger" | grep -c ' panel=0$')" 2
+EXTRA_PANEL=1 run usb=1 pwrkey-irq
+check "ledger: no resolvable panel -> panel=-" "$(grep 'reason=charger' "$ledger" | grep -c ' panel=-$')" 1
+unset EXTRA_PANEL
 
 if (( fail )); then echo "dark-resume: FAILURES"; exit 1; fi
 echo "PASS: dark-resume-test"
