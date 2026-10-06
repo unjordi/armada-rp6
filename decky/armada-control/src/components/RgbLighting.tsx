@@ -207,7 +207,7 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
             max={400}
             step={10}
             disabled={!config.enabled}
-            format={(value: number) => `${value}%`}
+            valueSuffix="%"
             onChange={(next: number) => setConfig({ ...config, speed: next })}
           />
         )}
@@ -248,7 +248,7 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
             max={150}
             step={1}
             disabled={!config.enabled}
-            format={(value: number) => `${value}%`}
+            valueSuffix="%"
             onChange={(next: number) => setConfig({ ...config, sync_scale: next })}
           />
         )}
@@ -268,7 +268,7 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
           max={100}
           step={1}
           disabled={!chargeIndicatorEnabled || chargeIndicatorUpdating}
-          format={(value: number) => `${value}%`}
+          valueSuffix="%"
           onChange={applyChargeIndicatorBrightness}
         />
       </PanelSection>
