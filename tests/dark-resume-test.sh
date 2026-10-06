@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Dark resume (suspend-dispatch + dark-resume-lib): in deep, a wake whose ONLY
 # change is the charger (plug/unplug) must put the device back to sleep without
-# ever returning to the caller (so logind/Steam never see a resume), while a
-# power-button, rtc or unexplained wake -- or any failure -- ends in the full
-# resume of today. Uses a fake sysfs, /proc/interrupts, systemctl and a fake
+# ever returning to the caller (so logind/Steam never see a resume), and so must
+# a wake nobody can name (battmgr doorbells); only the power button, an rtc
+# alarm, a failure or a wake storm end in the full resume of today. Uses a fake sysfs, /proc/interrupts, systemctl and a fake
 # systemd-sleep that replays a script of "events", one per invocation.
 set -euo pipefail
 
@@ -127,25 +127,32 @@ run usb=1 rtc
 check "plug then rtc: 2 rounds" "$(calls)" 2
 has "plug then rtc: forced LED restore (non-user final wake)" "post suspend force=1" "$hook_log"
 
-# 4) unexplained wake (nothing changed) -> exits like today.
-run none
-check "unknown reason: single sleep call" "$(calls)" 1
-has "unknown reason: reason=unknown" "reason=unknown" "$ledger"
-check "unknown reason: exit 0" "$rc" 0
-has "unknown reason on the FIRST round: LEDs handed back anyway" "post suspend force=1" "$hook_log"
+# 4) unexplained wake (nothing changed) -> sleeps again; only the button wakes.
+run none pwrkey-irq
+check "unnamed wake: sleeps again (2 rounds)" "$(calls)" 2
+check "unnamed wake: ledger other then user" "$(grep -o 'reason=[a-z]*' "$ledger" | paste -sd, -)" "reason=other,reason=user"
+check "unnamed wake: exit 0" "$rc" 0
+check "unnamed wake then button: no forced LED restore" "$(cat "$hook_log")" ""
+lacks "unnamed wake: no settle wait on the battery" "reason=charger" "$ledger"
+
+# 4a) the 2026-10-05 20:46 case: plug, then a battmgr doorbell 6 s later with
+#     the charger already online, then the button.
+run usb=1 none pwrkey-irq
+check "plug + doorbell + button: 3 rounds" "$(calls)" 3
+check "plug + doorbell + button: reasons" "$(grep -o 'reason=[a-z]*' "$ledger" | paste -sd, -)" "reason=charger,reason=other,reason=user"
 
 # 4b) the charger's `online` lands ~0.2 s after the resume returns -> still a
 #     charger wake (the lib waits for battmgr instead of calling it unknown).
 run usb-late=1 pwrkey-irq
 check "late online: sleeps again (2 rounds)" "$(calls)" 2
 has "late online: reason=charger" "reason=charger" "$ledger"
-# ... but only within the wait budget: a reading that never changes is unknown.
+# ... beyond the wait budget it is just an unnamed wake: still back to sleep.
 ONLINE_TICKS=1 run usb-late=1 pwrkey-irq
-check "late online beyond the budget: single call (full resume)" "$(calls)" 1
-has "late online beyond the budget: reason=unknown" "reason=unknown" "$ledger"
+check "late online beyond the budget: still sleeps again (2 rounds)" "$(calls)" 2
+has "late online beyond the budget: reason=other" "reason=other" "$ledger"
 sleep 0.3   # let the fake's background writer finish before the next run()
 
-# 5) cap: charger flipping every round stops at ARMADA_DARK_RESUME_MAX.
+# 5) storm guard: MAX consecutive short rounds end in a full resume.
 export ARMADA_DARK_RESUME_MAX=3
 run usb=1 usb=0 usb=1 usb=0 usb=1 usb=0
 unset ARMADA_DARK_RESUME_MAX
@@ -154,6 +161,13 @@ has "cap: ledger reason=cap" "reason=cap" "$ledger"
 check "cap: two charger rounds before the cap" "$(nlines reason=charger "$ledger")" 2
 has "cap: thawed" "^thaw user.slice" "$sc_log"
 has "cap: LEDs handed back" "post suspend force=1" "$hook_log"
+ARMADA_DARK_RESUME_MAX=3 run none none none none
+check "storm of unnamed wakes: stops after MAX calls" "$(calls)" 3
+has "storm of unnamed wakes: reason=cap" "reason=cap" "$ledger"
+# 5b) rounds that slept long (a night of charging) never count toward the guard.
+ARMADA_DARK_RESUME_MAX=2 ARMADA_DARK_RESUME_STORM_SECS=0 run usb=1 none usb=0 none pwrkey-irq
+check "long rounds: no cap, the button ends it" "$(calls)" 5
+lacks "long rounds: no reason=cap" "reason=cap" "$ledger"
 
 # 6) freeze fails -> today's behaviour: plain exec of systemd-sleep, no loop.
 FAKE_FREEZE_FAIL=1 run usb=1 pwrkey-irq
@@ -183,9 +197,10 @@ has "failure after a dark round: LEDs handed back" "post suspend force=1" "$hook
     [[ "$dr_supplies" == "qcom-battmgr-usb qcom-battmgr-wls" && "$(charger_online)" == 10 ]]
 ) && echo "ok: RP6 supply names detected by type (online=10)" || { echo "FAIL: supplies by type"; fail=1; }
 
-# 7b) charger state unreadable -> never dark-resume.
-ARMADA_DARK_RESUME_SUPPLIES="nothere" run usb=1
-check "unreadable charger: single sleep call" "$(calls)" 1
+# 7b) charger state unreadable -> still only the button wakes it.
+ARMADA_DARK_RESUME_SUPPLIES="nothere" run usb=1 pwrkey-irq
+check "unreadable charger: sleeps again until the button" "$(calls)" 2
+has "unreadable charger: reason=other" "reason=other" "$ledger"
 
 # 8) not applicable -> plain exec, loop never used.
 FAKE_DARK=0 run usb=1 pwrkey-irq
