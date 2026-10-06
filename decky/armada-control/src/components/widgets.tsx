@@ -64,14 +64,16 @@ export function ToggleRow({ label, value, onChange, disabled, description, wrapp
   );
 }
 
-export function SliderEdit({ label, value, min, max, step, onChange, format, disabled, showValue = true, wrapperClassName = "armada-slider-field" }: {
+export function SliderEdit({ label, value, min, max, step, onChange, valueSuffix, disabled, showValue = true, wrapperClassName = "armada-slider-field" }: {
   label: ReactNode;
   value: any;
   min: number;
   max: number;
   step: number;
-  onChange: (value: any) => void;
-  format?: (value: number) => any;
+  // Always the slider's number: the backend validates ints, so never transform it here.
+  onChange: (value: number) => void;
+  // Display only (e.g. "%"); does not change the value passed to onChange.
+  valueSuffix?: string;
   disabled?: boolean;
   showValue?: boolean;
   wrapperClassName?: string;
@@ -87,8 +89,9 @@ export function SliderEdit({ label, value, min, max, step, onChange, format, dis
           max={max}
           step={step}
           showValue={showValue}
+          valueSuffix={valueSuffix}
           disabled={disabled}
-          onChange={(next) => onChange(format ? format(next) : next)}
+          onChange={(next) => onChange(next)}
         />
       </div>
     </PanelSectionRow>
