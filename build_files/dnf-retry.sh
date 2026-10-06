@@ -1,14 +1,15 @@
 #!/bin/bash
 # dnf5 with retries for transient repository failures (a mirror mid-publish,
-# metadata whose checksum does not match, a dropped download), for up to ~90
-# min. build.sh puts it first in PATH as `dnf5` for the build; it is not shipped.
+# metadata whose checksum does not match, a dropped download) for a few minutes,
+# then fails rather than stall the build on a broken repository. build.sh puts it
+# first in PATH as `dnf5` for the build; it is not shipped.
 # Only failures that look transient are retried, so a real error (a package
 # that does not exist, a conflict) still fails on the first try.
 set -uo pipefail
 
 real=${ARMADA_DNF_REAL:-/usr/bin/dnf5}
-attempts=${ARMADA_DNF_ATTEMPTS:-10}
-delays=(${ARMADA_DNF_DELAYS:-60 120 240 480 900 900 900})
+attempts=${ARMADA_DNF_ATTEMPTS:-4}
+delays=(${ARMADA_DNF_DELAYS:-30 60 120})   # ~3.5 min in total
 transient='checksum doesn.t match|Usable URL not found|Cannot download|Failed to download|Curl error|Status code: 5[0-9][0-9]|Timeout was reached|Could not resolve host|Connection reset|Failed to load expired repos cache|Librepo error'
 
 log=$(mktemp "${TMPDIR:-/tmp}/dnf-retry.XXXXXX")
