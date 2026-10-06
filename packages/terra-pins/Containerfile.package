@@ -1,0 +1,11 @@
+# Built on its own (the workflows pick this file over packages/Containerfile),
+# so adding this package does not change the hash of every other package.
+ARG BUILDER_IMAGE
+
+FROM ${BUILDER_IMAGE} AS pkg-terra-pins
+COPY terra-pins/ /work/
+WORKDIR /work
+RUN ./build.sh
+
+FROM scratch AS out-terra-pins
+COPY --from=pkg-terra-pins /work/out/ /rpms/

@@ -50,9 +50,10 @@ curl --retry 3 --retry-delay 2 -fsSL -o /usr/bin/winetricks \
 echo "${WINETRICKS_SHA256}  /usr/bin/winetricks" | sha256sum -c -
 chmod 0755 /usr/bin/winetricks
 
-# Avoid gamescope-session-ogui-steam/-powerstation; Terra's aarch64 deps are broken.
-dnf5 -y install --setopt=install_weak_deps=False --enable-repo=terra \
-    steam-notif-daemon
+# steam-notif-daemon is the one Terra package the session needs (installed from
+# terra-pins); the ogui-steam/powerstation session packages are skipped because
+# Terra's aarch64 deps for them are broken.
+rpm -q steam-notif-daemon
 
 # Armada's package carries the rotation, startup timeout, and HDR capability
 # integration patches for the common session launcher.

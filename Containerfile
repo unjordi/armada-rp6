@@ -71,6 +71,9 @@ FROM ${ARMADA_SPLASH_REF} AS armada-splash
 ARG ARMADA_RGB_REF
 FROM ${ARMADA_RGB_REF} AS armada-rgb
 
+ARG TERRA_PINS_REF
+FROM ${TERRA_PINS_REF} AS terra-pins
+
 ARG UMTP_RESPONDER_REF
 FROM ${UMTP_RESPONDER_REF} AS umtp-responder
 
@@ -123,6 +126,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=bind,from=extest,source=/,target=/packages/extest \
     --mount=type=bind,from=armada-splash,source=/rpms,target=/packages/armada-splash \
     --mount=type=bind,from=armada-rgb,source=/rpms,target=/packages/armada-rgb \
+    --mount=type=bind,from=terra-pins,source=/rpms,target=/packages/terra-pins \
     --mount=type=bind,from=umtp-responder,source=/rpms,target=/packages/umtp-responder \
     --mount=type=bind,from=decky-build,source=/build/armada-control/dist,target=/packages/decky-dist \
     --mount=type=bind,from=decky-build,source=/build/armada-store/dist,target=/packages/decky-store-dist \

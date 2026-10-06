@@ -75,6 +75,8 @@ jobs:
 
       - name: Resolve what this PR has to build
         id: resolve
+        env:
+          FORK_PKG: ghcr.io/${{ github.repository_owner }}/armada/pkg
         run: |
           set -euo pipefail
           # Anonymous: reading a public package needs no token, and holding none
@@ -91,6 +93,13 @@ jobs:
             if skopeo inspect --raw "docker://${UPSTREAM_PKG}/${pkg}:${hash}" >/dev/null 2>&1; then
               echo "::notice::${pkg} already built upstream (${hash})"
               refs="${refs}${var}=${UPSTREAM_PKG}/${pkg}:${hash}"$'\n'
+              continue
+            fi
+            # A fork's own packages (unchanged by this PR) are already published
+            # by its packages workflow; reuse them instead of rebuilding.
+            if skopeo inspect --raw "docker://${FORK_PKG}/${pkg}:${hash}" >/dev/null 2>&1; then
+              echo "::notice::${pkg} already built by this fork (${hash})"
+              refs="${refs}${var}=${FORK_PKG}/${pkg}:${hash}"$'\n'
               continue
             fi
 
@@ -175,7 +184,7 @@ jobs:
           set -euxo pipefail
           # --cache-from only. Nothing here may write to the registry.
           buildah build \
-            -f packages/Containerfile \
+            -f "$(packages/containerfile-for.sh "${PACKAGE}")" \
             --target "out-${PACKAGE}" \
             --layers \
             --cache-from "${UPSTREAM_CACHE}/${PACKAGE}" \
@@ -288,7 +297,7 @@ jobs:
           while read -r pkg hash; do
             echo "::group::${pkg}"
             buildah build \
-              -f packages/Containerfile \
+              -f "$(packages/containerfile-for.sh "${pkg}")" \
               --target "out-${pkg}" \
               --layers \
               --cache-from "${UPSTREAM_CACHE}/${pkg}" \

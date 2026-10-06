@@ -88,7 +88,7 @@ package name:
     [ -d "packages/{{ name }}" ] || { echo "unknown package: {{ name }}" >&2; exit 1; }
     hash="$(packages/package-hash.sh {{ name }})"
     buildah build \
-        -f packages/Containerfile \
+        -f "$(packages/containerfile-for.sh {{ name }})" \
         --target "out-{{ name }}" \
         --layers \
         --build-arg "BUILDER_IMAGE=${BUILDER_IMAGE}" \

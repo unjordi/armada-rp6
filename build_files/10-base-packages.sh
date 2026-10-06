@@ -1,9 +1,11 @@
 #!/bin/bash
 set -euxo pipefail
 
-dnf5 -y install --nogpgcheck \
-    --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' \
-    terra-release
+# What the image takes from Terra (scx schedulers, steam-notif-daemon, two codec
+# libraries ffmpeg needs) comes from the terra-pins package, fixed by sha256, not
+# from Terra live: a Terra outage or half-published mirror cannot break the build.
+# Bump them in packages/terra-pins/pins.txt.
+dnf5 -y install --setopt=install_weak_deps=False /packages/terra-pins/*.rpm
 
 dnf5 -y install --setopt=install_weak_deps=False \
     sddm \
@@ -39,7 +41,6 @@ dnf5 -y install --setopt=install_weak_deps=False \
     lsb_release \
     htop \
     lsof \
-    scx-scheds \
     unzip \
     fuse \
     fuse-libs \
@@ -164,12 +165,9 @@ dnf5 -y install --setopt=install_weak_deps=False /packages/powerdevil/powerdevil
 
 dnf5 -y install --setopt=install_weak_deps=False firefox
 
-dnf5 -y install --setopt=install_weak_deps=False \
-    heroic-games-launcher
-
 # scx_cosmos/scx_lavd for the Armada Control scheduler setting; without the
-# binaries armada-powerd reports the scheduler choice as unavailable.
-dnf5 -y install --setopt=install_weak_deps=False scx-scheds
+# binaries armada-powerd reports the scheduler choice as unavailable. From terra-pins.
+rpm -q scx-scheds
 
 dnf5 -y install --setopt=install_weak_deps=False \
     --repofrompath 'copr-ublue-os-packages,https://download.copr.fedorainfracloud.org/results/ublue-os/packages/fedora-$releasever-$basearch/' \
