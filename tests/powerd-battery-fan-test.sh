@@ -95,7 +95,7 @@ def set_battery(temp_c=None, status="Discharging"):
 power = make_power()
 power.load_battery_fan_config()
 check("factory battery_fan enabled", power.battery_enabled is True)
-check("factory charging boost loaded", power.battery_charging_boost == 36)
+check("factory charging boost loaded", power.battery_charging_boost == 16)
 check("factory curve has 7 knots", len(power.battery_curve) == 7)
 check("curve sorted ascending by temp",
       power.battery_curve == sorted(power.battery_curve))
@@ -109,11 +109,11 @@ set_battery(35, "Charging")
 check("35 C knot is 0 -> no floor", power.battery_target_pwm() == 0)
 
 # --- warm battery: interpolated + quantized, discharging vs charging --------
-set_battery(40, "Discharging")
-check("40 C discharging floor = 144", power.battery_target_pwm() == 144)
-set_battery(40, "Charging")
-check("40 C charging floor = 176 (144 + boost, quantized)",
-      power.battery_target_pwm() == 176)
+set_battery(44, "Discharging")
+check("44 C discharging floor = 112 (110 quantized)", power.battery_target_pwm() == 112)
+set_battery(44, "Charging")
+check("44 C charging floor = 128 (110 + boost, quantized)",
+      power.battery_target_pwm() == 128)
 set_battery(50, "Charging")
 check("hot battery clamps to max 255", power.battery_target_pwm() == 255)
 set_battery(50, "Discharging")
@@ -173,16 +173,16 @@ def tick(curve_pwm, temp_c, status, on_ac, charging_pwm=0):
         return int(f.read().strip())
 
 
-check("tick: warm battery lifts a quiet CPU curve (40 C -> 144)",
-      tick(64, 40, "Discharging", False) == 144)
+check("tick: warm battery lifts a quiet CPU curve (44 C -> 112)",
+      tick(64, 44, "Discharging", False) == 112)
 check("tick: a louder CPU curve wins over the battery floor",
-      tick(200, 40, "Discharging", False) == 200)
+      tick(200, 44, "Discharging", False) == 200)
 check("tick: cool battery leaves the CPU curve alone",
       tick(64, 30, "Discharging", False) == 64)
 check("tick: upstream charging floor still applies with a cool battery",
       tick(64, 30, "Charging", True, charging_pwm=96) == 96)
 check("tick: battery floor + boost beats the charging floor when warm",
-      tick(64, 40, "Charging", True, charging_pwm=96) == 176)
+      tick(64, 44, "Charging", True, charging_pwm=96) == 128)
 
 if failures:
     print(f"\n{len(failures)} battery-fan check(s) failed", file=sys.stderr)
