@@ -36,6 +36,11 @@ RGB_CHARGE_INDICATOR_CONFIG = Path("/etc/armada/rgb-charge-indicator.conf")
 KEEP_ROLLBACK_FILE = Path("/etc/armada/keep-rollback")
 RGB_SPEED_MIN = 1
 RGB_SPEED_MAX = 1000
+# LED-vs-screen factor for brightness sync, in percent (armada-rgb --sync-scale).
+RGB_SYNC_SCALE_MIN = 10
+RGB_SYNC_SCALE_MAX = 200
+# Brightness of the charge indicator while asleep, in percent of the LED maximum.
+RGB_CHARGE_INDICATOR_BRIGHTNESS_DEFAULT = 100
 ABL_CONFIG = Path("/etc/armada/abl.conf")
 ABL_MANIFEST = Path("/usr/lib/armada/abl/manifest")
 ABL_PARTITIONS = (
@@ -658,6 +663,17 @@ def action_set_rgb(request):
             raise ValueError("invalid RGB speed")
         command += ["--speed", str(speed)]
 
+    sync_scale = request.get("sync_scale")
+    if sync_scale is not None:
+        valid_scale = sync_scale == "default" or (
+            isinstance(sync_scale, int)
+            and not isinstance(sync_scale, bool)
+            and RGB_SYNC_SCALE_MIN <= sync_scale <= RGB_SYNC_SCALE_MAX
+        )
+        if not valid_scale:
+            raise ValueError("invalid RGB sync scale")
+        command += ["--sync-scale", str(sync_scale)]
+
     return run_rgb(command)
 
 
@@ -671,28 +687,55 @@ def action_set_rgb_sync_brightness(request):
     return run_rgb(["sync-brightness", "on" if enabled else "off"])
 
 
-def rgb_charge_indicator_enabled():
+def read_rgb_charge_indicator():
+    """`enabled` (opt-in, default off) and `brightness` (percent, default 100)
+    from RGB_CHARGE_INDICATOR_CONFIG; 56-armada-rgb-suspend-charging reads the same keys."""
+    state = {"enabled": False, "brightness": RGB_CHARGE_INDICATOR_BRIGHTNESS_DEFAULT}
     try:
         lines = RGB_CHARGE_INDICATOR_CONFIG.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return False  # opt-in: default OFF until the user turns it on
+        return state
     for line in lines:
         key, sep, value = line.partition("=")
-        if sep and key.strip() == "enabled":
-            return value.strip() == "1"
-    return False
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        if key == "enabled":
+            state["enabled"] = value == "1"
+        elif key == "brightness" and value.isdigit() and 1 <= int(value) <= 100:
+            state["brightness"] = int(value)
+    return state
+
+
+def write_rgb_charge_indicator(state):
+    atomic_write(
+        RGB_CHARGE_INDICATOR_CONFIG,
+        f"enabled={int(state['enabled'])}\nbrightness={state['brightness']}\n",
+    )
+    return read_rgb_charge_indicator()
+
+
+def rgb_charge_indicator_enabled():
+    return read_rgb_charge_indicator()["enabled"]
 
 
 def action_get_rgb_charge_indicator_enabled(request):
-    return {"enabled": rgb_charge_indicator_enabled()}
+    return read_rgb_charge_indicator()
 
 
 def action_set_rgb_charge_indicator_enabled(request):
     enabled = request.get("enabled")
     if not isinstance(enabled, bool):
         raise ValueError("invalid charge indicator enabled state")
-    atomic_write(RGB_CHARGE_INDICATOR_CONFIG, f"enabled={int(enabled)}\n")
-    return {"enabled": rgb_charge_indicator_enabled()}
+    return write_rgb_charge_indicator({**read_rgb_charge_indicator(), "enabled": enabled})
+
+
+def action_set_rgb_charge_indicator_brightness(request):
+    brightness = request.get("brightness")
+    valid = isinstance(brightness, int) and not isinstance(brightness, bool) and 1 <= brightness <= 100
+    if not valid:
+        raise ValueError("invalid charge indicator brightness")
+    return write_rgb_charge_indicator({**read_rgb_charge_indicator(), "brightness": brightness})
 
 
 def action_get_keep_rollback(request):
@@ -953,6 +996,7 @@ ACTIONS = {
     "set_rgb_sync_brightness": action_set_rgb_sync_brightness,
     "get_rgb_charge_indicator_enabled": action_get_rgb_charge_indicator_enabled,
     "set_rgb_charge_indicator_enabled": action_set_rgb_charge_indicator_enabled,
+    "set_rgb_charge_indicator_brightness": action_set_rgb_charge_indicator_brightness,
     "get_keep_rollback": action_get_keep_rollback,
     "set_keep_rollback": action_set_keep_rollback,
 }

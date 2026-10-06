@@ -92,6 +92,9 @@ candidate); if a device ever exposes *more than one* non-generic candidate
 `run` logs a one-time diagnostic naming every candidate and which one it
 picked, rather than staying silent about it.
 
+The user can override that factor with `armada-rgb set --sync-scale <10-200>`
+(percent; `default` goes back to the device value), saved as `sync_scale`.
+
 Some LEDs read brighter than the panel at the same backlight level, so the
 scaled value is also multiplied by a per-device factor, `ARMADA_RGB_SYNC_SCALE`
 (`0.88` on the Retroid Pocket 6). It is HW-dependent, so it lives in the

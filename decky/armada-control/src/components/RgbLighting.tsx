@@ -5,9 +5,11 @@ import {
   getRgb,
   getRgbChargeIndicatorEnabled,
   setRgb,
+  setRgbChargeIndicatorBrightness,
   setRgbChargeIndicatorEnabled,
   setRgbSyncBrightness,
 } from "../backend";
+import { useDebouncedApply } from "../hooks/useDebouncedApply";
 import { t } from "../i18n";
 import { friendlyError } from "../lib/errors";
 import { displayedEffect, EFFECT_OPTIONS, USES_BASE_COLOR, USES_SATURATION, USES_SPEED } from "../lib/rgbEffects";
@@ -54,7 +56,7 @@ function hueColor(hue: number): string {
   }
 }
 
-export function RgbLighting() {
+export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: number }) {
   const [config, setConfig] = useState<RgbConfig | null>(null);
   const savedConfig = useRef<string>("");
   const lastUpdate = useRef<number>(0);
@@ -63,6 +65,14 @@ export function RgbLighting() {
   // armada-rgb's own config, so it is loaded and saved separately.
   const [chargeIndicatorEnabled, setChargeIndicatorEnabled] = useState(false);
   const [chargeIndicatorUpdating, setChargeIndicatorUpdating] = useState(false);
+  const [chargeIndicatorBrightness, setChargeIndicatorBrightness] = useState(100);
+  const applyChargeIndicatorBrightness = useDebouncedApply(
+    async () => (await getRgbChargeIndicatorEnabled()).brightness,
+    setChargeIndicatorBrightness,
+    async (value) => (await setRgbChargeIndicatorBrightness(value)).brightness,
+    t("rgb.chargeIndicatorChangeError"),
+    300,
+  );
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +88,7 @@ export function RgbLighting() {
     try {
       const next = await getRgbChargeIndicatorEnabled();
       setChargeIndicatorEnabled(next.enabled);
+      setChargeIndicatorBrightness(next.brightness ?? 100);
     } catch (error) {
       toaster.toast({ title: t("rgb.chargeIndicatorLoadError"), body: friendlyError(error) });
     }
@@ -105,6 +116,7 @@ export function RgbLighting() {
           config.brightness,
           config.effect ?? "static",
           config.speed ?? 100,
+          config.sync_scale ?? null,
         );
         savedConfig.current = current;
       } catch (error) {
@@ -228,6 +240,18 @@ export function RgbLighting() {
           disabled={!config.enabled || syncBrightnessUpdating}
           onChange={toggleSyncBrightness}
         />
+        {syncBrightness && (
+          <SliderEdit
+            label={t("rgb.syncScale")}
+            value={config.sync_scale ?? syncScaleDefault}
+            min={10}
+            max={150}
+            step={1}
+            disabled={!config.enabled}
+            format={(value: number) => `${value}%`}
+            onChange={(next: number) => setConfig({ ...config, sync_scale: next })}
+          />
+        )}
       </PanelSection>
       <PanelSection title={t("rgb.chargeIndicator")}>
         <ToggleRow
@@ -236,6 +260,16 @@ export function RgbLighting() {
           value={chargeIndicatorEnabled}
           disabled={chargeIndicatorUpdating}
           onChange={toggleChargeIndicator}
+        />
+        <SliderEdit
+          label={t("rgb.chargeIndicatorBrightness")}
+          value={chargeIndicatorBrightness}
+          min={1}
+          max={100}
+          step={1}
+          disabled={!chargeIndicatorEnabled || chargeIndicatorUpdating}
+          format={(value: number) => `${value}%`}
+          onChange={applyChargeIndicatorBrightness}
         />
       </PanelSection>
     </>

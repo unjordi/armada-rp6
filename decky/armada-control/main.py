@@ -14,6 +14,7 @@ from armada_control.rgb import (
     get_rgb,
     get_rgb_charge_indicator_enabled,
     set_rgb,
+    set_rgb_charge_indicator_brightness,
     set_rgb_charge_indicator_enabled,
     set_rgb_sync_brightness,
 )
@@ -122,8 +123,8 @@ class Plugin:
     async def get_rgb(self):
         return await asyncio.to_thread(get_rgb)
 
-    async def set_rgb(self, enabled, color, saturation, brightness, effect=None, speed=None):
-        return await asyncio.to_thread(set_rgb, enabled, color, saturation, brightness, effect, speed)
+    async def set_rgb(self, enabled, color, saturation, brightness, effect=None, speed=None, sync_scale=None):
+        return await asyncio.to_thread(set_rgb, enabled, color, saturation, brightness, effect, speed, sync_scale)
 
     # A separate toggle, not part of set_rgb: it combines with any effect.
     async def set_rgb_sync_brightness(self, enabled):
@@ -136,6 +137,9 @@ class Plugin:
 
     async def set_rgb_charge_indicator_enabled(self, enabled):
         return await asyncio.to_thread(set_rgb_charge_indicator_enabled, enabled)
+
+    async def set_rgb_charge_indicator_brightness(self, brightness):
+        return await asyncio.to_thread(set_rgb_charge_indicator_brightness, brightness)
 
     async def get_keep_rollback(self):
         return await asyncio.to_thread(get_keep_rollback)

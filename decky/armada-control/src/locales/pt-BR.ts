@@ -247,6 +247,8 @@ export const ptBR = {
   "rgb.syncBrightnessDescription": "Ajusta o brilho da iluminação ao da tela, sobre o efeito e a cor escolhidos acima. Enquanto ativado, o controle de Brilho fica desabilitado.",
   "rgb.syncBrightnessError": "Não foi possível alterar a sincronização de brilho",
   "rgb.chargeIndicator": "Indicador de carga",
+  "rgb.syncScale": "Atenuação em relação à tela",
+  "rgb.chargeIndicatorBrightness": "Brilho do indicador de carga",
   "rgb.chargeIndicatorToggle": "Mostrar a carga durante a suspensão",
   "rgb.chargeIndicatorDescription": "Durante a suspensão e a carga, os LEDs dos analógicos acendem em âmbar (verde quando cheia) para você ver de relance que está carregando.",
   "rgb.chargeIndicatorLoadError": "Não foi possível carregar a configuração do indicador de carga",

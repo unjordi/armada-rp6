@@ -150,6 +150,7 @@ assert calls.pop() == (
         "brightness": 50,
         "effect": None,
         "speed": None,
+        "sync_scale": None,
     },
 )
 rgb.set_rgb(True, "112233", 75, 50, "breathing", 200)
@@ -162,8 +163,17 @@ assert calls.pop() == (
         "brightness": 50,
         "effect": "breathing",
         "speed": 200,
+        "sync_scale": None,
     },
 )
+rgb.set_rgb(True, "112233", 75, 50, "static", 100, 60)
+assert calls.pop()[1]["sync_scale"] == 60
+
+# The slider's starting point is the device factor in percent; junk means 100.
+assert rgb.sync_scale_percent("0.88") == 88
+assert rgb.sync_scale_percent("1.5") == 150
+for junk in ("", "0", "-1", "2.5", "abc", None):
+    assert rgb.sync_scale_percent(junk) == 100, junk
 
 rgb.set_rgb_sync_brightness(True)
 assert calls.pop() == ("set_rgb_sync_brightness", {"enabled": True})
@@ -171,6 +181,8 @@ rgb.get_rgb_charge_indicator_enabled()
 assert calls.pop() == ("get_rgb_charge_indicator_enabled", {})
 rgb.set_rgb_charge_indicator_enabled(True)
 assert calls.pop() == ("set_rgb_charge_indicator_enabled", {"enabled": True})
+rgb.set_rgb_charge_indicator_brightness(40)
+assert calls.pop() == ("set_rgb_charge_indicator_brightness", {"brightness": 40})
 
 # screen_sync is a plain --effect value with no flags of its own. Brightness
 # sync is explicitly not an effect -- see below.
@@ -194,6 +206,19 @@ assert commands.pop() == [
     "screen_sync",
 ]
 
+# The LED-vs-screen factor rides on `set` as --sync-scale (percent or "default").
+control.action_set_rgb({"enabled": True, "color": "a1b2c3", "brightness": 40, "sync_scale": 60})
+assert commands.pop()[-2:] == ["--sync-scale", "60"]
+control.action_set_rgb({"enabled": True, "color": "a1b2c3", "brightness": 40, "sync_scale": "default"})
+assert commands.pop()[-2:] == ["--sync-scale", "default"]
+for bad in (0, 9, 201, True, "60", 1.5):
+    try:
+        control.action_set_rgb({"enabled": True, "color": "a1b2c3", "brightness": 40, "sync_scale": bad})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"sync_scale {bad!r} was accepted")
+
 # Brightness sync is a separate `sync-brightness on|off` command, not an
 # --effect value and not bundled into action_set_rgb's request.
 control.action_set_rgb_sync_brightness({"enabled": True})
@@ -215,16 +240,26 @@ assert "set_charge_indicator" not in control.ACTIONS
 
 indicator_config = Path(sys.argv[2]) / "rgb-charge-indicator.conf"
 control.RGB_CHARGE_INDICATOR_CONFIG = indicator_config
-assert control.action_get_rgb_charge_indicator_enabled({}) == {"enabled": False}, \
-    "opt-in must default OFF when the config file doesn't exist yet"
+assert control.action_get_rgb_charge_indicator_enabled({}) == {"enabled": False, "brightness": 100}, \
+    "opt-in must default OFF (full brightness) when the config file doesn't exist yet"
 
-assert control.action_set_rgb_charge_indicator_enabled({"enabled": True}) == {"enabled": True}
-assert control.action_get_rgb_charge_indicator_enabled({}) == {"enabled": True}
-assert indicator_config.read_text() == "enabled=1\n"
+assert control.action_set_rgb_charge_indicator_enabled({"enabled": True}) == {"enabled": True, "brightness": 100}
+assert indicator_config.read_text() == "enabled=1\nbrightness=100\n"
 
-assert control.action_set_rgb_charge_indicator_enabled({"enabled": False}) == {"enabled": False}
-assert control.action_get_rgb_charge_indicator_enabled({}) == {"enabled": False}
-assert indicator_config.read_text() == "enabled=0\n"
+# Brightness and the opt-in are independent keys: changing one keeps the other.
+assert control.action_set_rgb_charge_indicator_brightness({"brightness": 30}) == {"enabled": True, "brightness": 30}
+assert control.action_set_rgb_charge_indicator_enabled({"enabled": False}) == {"enabled": False, "brightness": 30}
+assert indicator_config.read_text() == "enabled=0\nbrightness=30\n"
+# A file written before the brightness key existed still reads, at 100.
+indicator_config.write_text("enabled=1\n")
+assert control.action_get_rgb_charge_indicator_enabled({}) == {"enabled": True, "brightness": 100}
+for bad in (0, 101, True, "30", None):
+    try:
+        control.action_set_rgb_charge_indicator_brightness({"brightness": bad})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"charge indicator brightness {bad!r} was accepted")
 
 try:
     control.action_set_rgb_charge_indicator_enabled({"enabled": "yes"})
@@ -237,6 +272,7 @@ for action in (
     "set_rgb_sync_brightness",
     "get_rgb_charge_indicator_enabled",
     "set_rgb_charge_indicator_enabled",
+    "set_rgb_charge_indicator_brightness",
 ):
     assert action in control.ACTIONS, f"{action} not registered in ACTIONS"
 

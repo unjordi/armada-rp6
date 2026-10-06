@@ -113,6 +113,8 @@ export interface RgbConfig {
   speed?: number;
   // armada-rgb's own snake_case key, passed through as-is. Omitted when off.
   sync_brightness?: boolean;
+  // LED-vs-screen factor in percent; omitted while the device default applies.
+  sync_scale?: number;
 }
 
 export interface GameRef {
@@ -144,6 +146,8 @@ export interface Config {
   // Top-bar profile glyph geometry from the device conf; empty when unset.
   topBarIndicator?: { sizePx: string; marginPx: string };
   rgbSupported: boolean;
+  // Device LED-vs-screen factor (ARMADA_RGB_SYNC_SCALE) in percent.
+  rgbSyncScaleDefault?: number;
   protonDefaults: string[];
   osVersion: string;
   ablVersion: string;

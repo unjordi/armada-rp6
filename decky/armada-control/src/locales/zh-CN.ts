@@ -247,6 +247,8 @@ export const zhCN = {
   "rgb.syncBrightnessDescription": "在上方所选效果和颜色的基础上，按屏幕背光调整灯光亮度。开启时亮度滑块不可用。",
   "rgb.syncBrightnessError": "无法更改亮度同步",
   "rgb.chargeIndicator": "充电指示",
+  "rgb.syncScale": "LED 相对屏幕的亮度比例",
+  "rgb.chargeIndicatorBrightness": "充电指示灯亮度",
   "rgb.chargeIndicatorToggle": "睡眠时显示充电状态",
   "rgb.chargeIndicatorDescription": "睡眠并充电时，摇杆 LED 亮琥珀色（充满后变绿），一眼就能看出正在充电。",
   "rgb.chargeIndicatorLoadError": "无法加载充电指示设置",

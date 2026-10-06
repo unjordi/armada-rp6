@@ -91,6 +91,8 @@ impl Controller {
                 }
             }
 
+            effects.set_user_sync_scale(config.sync_scale);
+
             // Static (and disabled) reuse the exact one-shot path so a saved
             // solid color — including any config-level correction — is
             // honored. `sync_brightness` is applied here too: it is a
