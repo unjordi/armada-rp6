@@ -116,6 +116,7 @@ run_hook() { # $1=pre|post  $2=suspend|hibernate  [$3=rgb_tool override]
         ARMADA_RGB_INDICATOR_LEDS="$LEDS_GLOB" \
         ARMADA_RGB_KEEPALIVE="$KA_GLOB" \
         ARMADA_PROC_INTERRUPTS="$fake_int" \
+        ARMADA_DARK_RESUME_PWRKEY0="${ARMADA_DARK_RESUME_PWRKEY0:-$tmp/no-dark-resume-round}" \
         RGB_CALLS="$rgb_calls" \
         SYSTEMCTL_LOG="$sc_log" \
         SYSTEMCTL_ACTIVE="$sc_active_flag" \
@@ -308,14 +309,53 @@ run_hook post suspend
 check "post+self-wake+full: keeps green (0 255 0)" "$(intensities)" "0 255 0"
 check "post+self-wake+full: trigger stays armed"   "$(triggers)" "$TRIGGER"
 
-# 18) post + SELF-WAKE but DISCHARGING (charger yanked while asleep) -> RESTORE
-#     (nothing to indicate; hand the ring back to the user's lighting).
+# 18) post + SELF-WAKE but DISCHARGING (charger yanked while asleep), OUTSIDE a
+#     dark-resume round -> RESTORE (nothing to indicate; the device is awake).
 reset_nodes; set_indicator 1; set_charge Discharging 55; set_self_wake; : >"$marker"; service_inactive
 for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
 run_hook post suspend
 check "post+self-wake+discharging: trigger disarmed (restore)" "$(triggers)" "none"
 check "post+self-wake+discharging: keep_alive cleared"        "$(keepalives)" "0"
 grep_ok "post+self-wake+discharging: daemon restarted"        "$sc_log" "^start armada-rgb\.service$"
+
+# 18d) same, but INSIDE a dark-resume round (dark-resume-lib wrote pwrkey0, counter
+#      unchanged) -> KEEP the indicator up, blanked: the next thing is another
+#      sleep, and restoring would flash the user's colour on a dark screen.
+reset_nodes; set_indicator 1; set_charge Discharging 55; set_self_wake; : >"$marker"; service_inactive
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+printf '0\n' >"$tmp/pwrkey0-round"
+ARMADA_DARK_RESUME_PWRKEY0="$tmp/pwrkey0-round" run_hook post suspend
+check "post+dark-round+discharging: trigger stays armed (no flash)" "$(triggers)" "$TRIGGER"
+check "post+dark-round+discharging: LEDs blanked (0 0 0)"            "$(intensities)" "0 0 0"
+check "post+dark-round+discharging: keep_alive stays 1"              "$(keepalives)" "1"
+grep_absent "post+dark-round+discharging: daemon NOT restarted"      "$sc_log" "^start "
+
+# 18b) ARMADA_RGB_FORCE_RESTORE=1 (dark-resume-lib, final non-user wake) -> full
+#      restore even on a self-wake while still charging.
+reset_nodes; set_indicator 1; set_charge Charging 60; set_self_wake; : >"$marker"; service_inactive
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+for f in "$tmp"/htr3212/*/keep_alive; do printf '1\n' >"$f"; done
+ARMADA_RGB_FORCE_RESTORE=1 run_hook post suspend
+check "post+FORCE_RESTORE: trigger disarmed"   "$(triggers)" "none"
+check "post+FORCE_RESTORE: keep_alive cleared" "$(keepalives)" "0"
+grep_ok "post+FORCE_RESTORE: daemon restarted" "$sc_log" "^start armada-rgb\.service$"
+
+# 18c) pwrkey counter delta (dark-resume-lib wrote the pre-sleep counter) with a
+#      "none" wake IRQ == the user pressed the button -> RESTORE, even charging.
+pk_file="$tmp/pwrkey0"
+printf '%s\n' ' 21:  5  2  pmic_pwrkey' '200:  0  0  pm8xxx_rtc_alarm' >"$fake_int"
+reset_nodes; set_indicator 1; set_charge Charging 60; set_self_wake; : >"$marker"; service_inactive
+for d in "${leds[@]}"; do printf '%s\n' "$TRIGGER" >"$d/trigger"; done
+printf '6\n' >"$pk_file"
+ARMADA_DARK_RESUME_PWRKEY0="$pk_file" run_hook post suspend
+check "post+pwrkey-delta (irq none): treated as user wake -> disarmed" "$(triggers)" "none"
+grep_ok "post+pwrkey-delta: daemon restarted" "$sc_log" "^start armada-rgb\.service$"
+# ... and an UNCHANGED counter is still a self-wake (keep).
+reset_nodes; set_indicator 1; set_charge Charging 60; set_self_wake; : >"$marker"; service_inactive
+printf '7\n' >"$pk_file"
+ARMADA_DARK_RESUME_PWRKEY0="$pk_file" run_hook post suspend
+check "post+pwrkey-unchanged (irq none): still a self-wake -> indicator kept" "$(triggers)" "$TRIGGER"
+printf '%s\n' ' 21:  0  0  pmic_pwrkey' '200:  0  0  pm8xxx_rtc_alarm' >"$fake_int"
 
 # 19) post + SELF-WAKE + charging but indicator OFF -> RESTORE (opt-out honored).
 reset_nodes; set_indicator 0; set_charge Charging 60; set_self_wake; service_active

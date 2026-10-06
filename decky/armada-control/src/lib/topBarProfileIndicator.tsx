@@ -1,45 +1,27 @@
-// armada#25 (Camino 2 — INLINE, replaces the fixed overlay): a live
-// power-profile glyph in the SYSTEM top bar (gamepadui), inserted as a real
-// sibling immediately BEFORE the clock (i.e. between the battery cluster and
-// the clock). Because it FLOWS inside Steam's own flex row instead of being a
-// `position:fixed` overlay, it can never desync from the clock/battery when
-// their widths change (1↔2-digit hour, charging icon appearing, % width).
+// A live power-profile glyph in Steam's own top bar (gamepadui), inserted as a
+// real sibling right before the clock, so it flows with the battery and clock
+// instead of being an overlay that drifts when their widths change.
 //
-// HOW IT WORKS (discovered live via CEF DevTools on the RP6, 2026-09-20 —
-// steamui build Chrome/126, see docs/camino2-hojita.md):
-//   * The top-bar row is rendered by a React.memo component we locate with
-//     findModuleExport, filtering on the stable strings its inner render
-//     references — "ControllerConfigurator" AND "VoiceChat" — not on a minified
-//     export name (those change every steamui build). Live (Chrome/126,
-//     2026-09-20) that resolved uniquely to ONE memo export. (An earlier build
-//     also had "quickAccessHeader" in this memo, but it moved to the QuickAccess
-//     module, so requiring it matched nothing — see findTopBarComponent.)
-//   * That component returns (paraphrased):
-//       <Provider><Row>{...icons..., <Battery/>, <ClockWrapper><Clock/></…>, …}</Row></Provider>
-//     The Clock is the only element whose component source references BOTH
-//     "DashboardBar" and "vrTooltip" — that is our stable anchor. We walk the
-//     returned element tree, find the array item that renders the clock, and
-//     splice our glyph in just before it.
-//   * afterPatch(memo, "type", …) wraps the memo's inner render. React's
-//     SimpleMemoComponent captures the resolved render fn at MOUNT and the bar
-//     mounts BEFORE this plugin loads, so the patch alone only affects FUTURE
-//     mounts — the instance ALREADY on screen keeps its pre-patch render.
-//     Verified live on the RP6 (2026-09-20): the patch lands (`__deckyPatch`
-//     set) yet the wrapper never runs on its own; the bar does NOT re-mount on
-//     navigation here (only a QAM open forced a render). So after patching we
-//     force ONE re-render of the mounted memo ourselves — see forceBarRerender/
-//     startMaterializer below. That is what makes the glyph appear with no user
-//     interaction. All later re-mounts pick up the patched `.type` on their own.
+// How it works:
+//   * The top-bar row is a React.memo found with findModuleExport by two stable
+//     strings its render references ("ControllerConfigurator" and "VoiceChat"),
+//     never by its minified export name.
+//   * afterPatch(memo, "type", ...) wraps its render; in the returned tree the
+//     clock is the element whose component source references both
+//     "DashboardBar" and "vrTooltip", and the glyph is spliced in before it.
+//   * The bar mounts before this plugin loads and a SimpleMemoComponent keeps
+//     the render it resolved at mount, so the patch alone only reaches future
+//     mounts. forceBarRerender/startMaterializer re-render the mounted bar once.
 //
-// FALLBACK: if the module isn't found (a future steamui refactor) or the forced
-// re-render can't run, install() logs ONCE and renders nothing — it never throws
-// into Steam's render. This break-on-major-update risk is accepted in the Decky
-// ecosystem; the safe degradation is "no glyph", never a broken top bar.
+// If the module is not found (a steamui refactor) or the re-render cannot run,
+// install() logs once and renders nothing; it never throws into Steam's render.
+// Background and live findings: the rp6-armada-manual skill, chapter 07.
 
 import { afterPatch, findModuleExport } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { getActivePowerProfile } from "../backend";
 import { useActivePowerProfile } from "../hooks/useActivePowerProfile";
+import { looksLikeClock } from "./topBarClock";
 
 // Module-level profile cache. The top-bar memo can (re)render at any moment
 // (a re-mount, a QAM open, our forced re-render). If ProfileGlyphSlot mounted
@@ -64,6 +46,10 @@ function startProfilePolling(): void {
   };
   poll();
   profileTimer = setInterval(poll, 3000);
+}
+function stopProfilePolling(): void {
+  if (profileTimer) clearInterval(profileTimer);
+  profileTimer = null;
 }
 
 // Glyph geometry is per-device and comes from the device conf
@@ -144,7 +130,7 @@ function BoltGlyph({ px }: { px: number }) {
   );
 }
 
-// The glyph itself. Reactive: polls the live active power profile (armada#24)
+// The glyph itself. Reactive: polls the live active power profile
 // so it flips leaf/bolt/none as the profile changes, WITHOUT the top-bar
 // component having to re-render. eco → leaf, performance → bolt, balanced /
 // unknown / unreadable → nothing (no layout gap, since we flow inline). Never
@@ -242,15 +228,8 @@ function insertBeforeClock(node: any, glyph: any): boolean {
 // (not by minified export name, which changes every steamui build). Returns
 // the memo object (or a plain function, defensively).
 //
-// Filter = "ControllerConfigurator" AND "VoiceChat": on the live RP6 build
-// (steamui Chrome/126, 2026-09-20) those two co-locate in EXACTLY ONE memo
-// export (the top-bar row) — verified via CDP: `findAllModules` finds a single
-// memo whose source has both. We deliberately do NOT also require
-// "quickAccessHeader": in this build that string is NO LONGER in the row memo
-// (it moved to the QuickAccess module `DT`), so the old 3-string AND matched
-// NOTHING and the glyph never installed. The 2-string filter is the current
-// unique signature; if a future steamui refactor breaks it, install() logs
-// once and renders nothing (never a broken bar — see the fallback below).
+// If a future steamui refactor breaks this signature, install() logs once and
+// renders nothing (never a broken bar).
 function findTopBarComponent(): any {
   return findModuleExport((e: any) => {
     try {
@@ -281,19 +260,10 @@ function warnOnce(...args: any[]) {
 }
 
 // --- Forcing the ALREADY-MOUNTED bar to pick up the patch --------------------
-// We run in Decky's SharedJSContext; the visible top bar renders in a SEPARATE
-// document (the "BPM" popup — reachable via g_PopupManager). afterPatch swaps
-// the shared row memo's `.type`, but React's SimpleMemoComponent captured the
-// OLD inner render at MOUNT, and the bar mounts BEFORE the plugin loads — so a
-// pure patch never shows on the instance that's already on screen (it only
-// affects FUTURE mounts). Verified live on the RP6 (2026-09-20): patch lands
-// (`__deckyPatch` set) yet the wrapper never runs until the memo re-renders.
-// So after patching we force ONE re-render of that mounted memo, from here,
-// via the popup's document + fiber. This is the whole reason the glyph now
-// shows without the user opening the QAM. All future re-mounts pick up the
-// patched `.type` on their own, so this only heals the initial instance.
-
-const CLOCK_RE = /^\d{1,2}:\d{2}( ?[AP]M)?$/i;
+// We run in Decky's SharedJSContext; the visible top bar renders in a separate
+// document (the BPM popup, reachable via g_PopupManager). Re-render the mounted
+// row memo once from here so it runs the patched `.type`; later mounts pick it
+// up on their own.
 
 function findClockNode(doc: Document): any {
   try {
@@ -304,7 +274,7 @@ function findClockNode(doc: Document): any {
         e.childNodes.length === 1 && e.firstChild && e.firstChild.nodeType === 3
           ? (e.textContent || "").trim()
           : "";
-      if (CLOCK_RE.test(t)) return e;
+      if (looksLikeClock(t)) return e;
     }
   } catch {
     /* ignore */
@@ -528,6 +498,7 @@ export function installTopBarProfileIndicator(): () => void {
       stopMaterializer();
       stopMaterializer = null;
     }
+    stopProfilePolling();
     if (patch) {
       try {
         patch.unpatch();

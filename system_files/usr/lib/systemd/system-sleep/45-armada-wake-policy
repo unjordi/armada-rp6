@@ -29,7 +29,8 @@ keep_wake() {
 
 if [[ "${1:-}" == pre ]]; then
     mkdir -p "$(dirname "$state_file")" || exit 0
-    : >"$state_file"
+    # Append, never truncate: if a previous post never ran, its list is the only
+    # record of what to re-enable (those sources now read "disabled").
     while IFS= read -r wake; do
         [[ "$(cat "$wake" 2>/dev/null)" == enabled ]] || continue
         name=$(basename "$(dirname "$(dirname "$wake")")")

@@ -6,6 +6,7 @@ import {
   displayedEffect,
   EFFECT_OPTIONS,
   USES_BASE_COLOR,
+  USES_SATURATION,
   USES_SPEED,
 } from "../src/lib/rgbEffects.ts";
 
@@ -42,4 +43,14 @@ test("effect option keys are unique", () => {
 test("screen_sync derives its own color and cadence, so it uses neither base color nor the speed slider", () => {
   assert.ok(!USES_BASE_COLOR.includes("screen_sync"), "color is sampled from the screen");
   assert.ok(!USES_SPEED.includes("screen_sync"), "screen_sync sets its own cadence");
+});
+
+test("saturation applies to every effect except screen_sync", () => {
+  for (const option of EFFECT_OPTIONS) {
+    assert.equal(
+      USES_SATURATION.includes(option.data),
+      option.data !== "screen_sync",
+      `${option.data}: armada-rgb applies saturation to all but the captured screen colors`,
+    );
+  }
 });

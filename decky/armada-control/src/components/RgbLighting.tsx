@@ -10,7 +10,7 @@ import {
 } from "../backend";
 import { t } from "../i18n";
 import { friendlyError } from "../lib/errors";
-import { displayedEffect, EFFECT_OPTIONS, USES_BASE_COLOR, USES_SPEED } from "../lib/rgbEffects";
+import { displayedEffect, EFFECT_OPTIONS, USES_BASE_COLOR, USES_SATURATION, USES_SPEED } from "../lib/rgbEffects";
 import type { RgbConfig, RgbEffect } from "../types";
 import { SelectEdit, SliderEdit, ToggleRow } from "./widgets";
 
@@ -161,6 +161,7 @@ export function RgbLighting() {
   const speed: number = config.speed ?? 100;
   const syncBrightness: boolean = !!config.sync_brightness;
   const colorDisabled: boolean = !config.enabled || !USES_BASE_COLOR.includes(effect);
+  const saturationDisabled: boolean = !config.enabled || !USES_SATURATION.includes(effect);
 
   return (
     <>
@@ -215,7 +216,7 @@ export function RgbLighting() {
           min={0}
           max={100}
           step={1}
-          disabled={colorDisabled}
+          disabled={saturationDisabled}
           showValue={false}
           wrapperClassName="armada-slider-field armada-rgb-saturation"
           onChange={(saturation: number) => setConfig({ ...config, saturation })}

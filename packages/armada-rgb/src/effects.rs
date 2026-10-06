@@ -182,9 +182,8 @@ impl Frame {
 }
 
 /// Mutable state carried between frames (CPU delta, smoothed load, backlight
-/// resolution for the `sync_brightness` modifier, and the last successfully
-/// sampled screen colors so a transient capture failure degrades to "keep
-/// showing the last good value" instead of flickering to black).
+/// resolution for the `sync_brightness` modifier, and the colors screen_sync
+/// painted last).
 pub struct EffectState {
     cpu: Option<CpuSample>,
     smooth_load: f32,
@@ -483,11 +482,9 @@ impl EffectState {
 
     /// Per-side (left/right) average color of the current screen EDGES,
     /// spread across `count` targets (first half = left edge average, second
-    /// half = right edge average). On any capture failure, keeps returning the last
-    /// successfully sampled colors (or the configured `base` color before the
-    /// first successful capture) instead of flickering to black — see
-    /// [`Effect::ScreenSync`]. QG-2: a persistent capture failure must never
-    /// leave the LEDs dark; falling back to `base` keeps them visible.
+    /// half = right edge average). On a capture failure the LEDs show the
+    /// configured `base` color until a capture succeeds again (QG-2: never
+    /// leave them dark, never paint a stale or garbage frame).
     fn sample_screen_colors(&mut self, count: usize, base: [u8; 3]) -> Vec<[u8; 3]> {
         match self.capture_screen_split() {
             Ok((left, right)) => {
@@ -1492,7 +1489,7 @@ mod tests {
     }
 
     #[test]
-    fn screen_sync_falls_back_to_last_colors_then_recovers() {
+    fn screen_sync_falls_back_to_base_then_recovers() {
         let root: PathBuf = fixture_dir("screen-sync-fallback");
         let fixture: PathBuf = write_split_fixture(&root, [10, 20, 30], [40, 50, 60]);
         let script: PathBuf = write_fake_gamescopectl(&root, &fixture);
@@ -1520,6 +1517,12 @@ mod tests {
         approx(colors[1], [10, 20, 30], "left recovered");
         approx(colors[2], [40, 50, 60], "right recovered");
         approx(colors[3], [40, 50, 60], "right recovered");
+
+        // A failure after a good capture shows the base color, not the stale frame.
+        state.gamescopectl_bin = root.join("does-not-exist").to_string_lossy().into_owned();
+        let base: [u8; 3] = [7, 8, 9];
+        let (frame, _) = state.render(Effect::ScreenSync, base, 100, 100, 0.0, 4);
+        assert_eq!(frame.expand(4), vec![base; 4], "failure after success falls back to base");
     }
 
     #[test]

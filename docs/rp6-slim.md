@@ -25,14 +25,20 @@ and comparing the two root filesystems: **1.24 GB less, 23 030 files** (2026-10-
 | Bazaar (Flatpak store GUI) | 4 MB | Removed together with WebKitGTK; not used on this device. |
 | Firmware families for hardware the RP6 does not have (Intel, NVIDIA, AMD GPU, MediaTek, Realtek NICs, server NICs, …) | ~20 MB | Chosen by an allowlist; see "Firmware" below. |
 
-Also listed in the script but **absent from the base image**, so nothing is removed for them: `anthy`, `ibus`,
-`cups`, `gcc`, `make`. `libpinyin` and `qt5-qtbase` are kept because other installed packages require them
-(the script checks `rpm --whatrequires` before each package removal).
+Also listed in the script but **absent from the base image**, so nothing is removed for them: the other
+WebKitGTK versions, `cups`, `gcc`, `make`. Each removal first runs `rpm -e --test`, which also sees soname
+dependencies, and skips the package (logging what depends on it) instead of letting dnf take dependents along.
+That is why Bazaar is listed explicitly ahead of WebKitGTK 6.0 rather than removed as a side effect.
+
+The base image installs the **variable** Noto Sans CJK font (`google-noto-sans-cjk-vf-fonts`, 33 MB) instead of
+upstream's static set (`google-noto-sans-cjk-fonts`, 131 MB): same Japanese, Chinese and Korean coverage, 98 MB less.
 
 ## What it keeps on purpose
 
 - **Everything games use:** turnip (Adreno Vulkan), **lavapipe** (CPU Vulkan fallback), Mesa, Zink, the Vulkan
   loader and layers, gamescope, MangoHud, FEX and its RootFS, the baked Proton. Only their documentation is removed.
+- **CJK text:** the variable CJK font above, and the input-method libraries (`libpinyin`, `anthy-unicode`) and
+  Qt5, which the on-screen keyboard (`maliit-keyboard`), KDE Frameworks 5 and `plasma-integration-qt5` link against.
 - **All firmware the RP6 hardware can load**, including `qcom/vpu` (video decoder; without it audio breaks)
   and `qca/` (WCN7850 Bluetooth).
 - Upstream's own cleanup is unchanged; this pass runs on top of it.
@@ -49,7 +55,8 @@ Also listed in the script but **absent from the base image**, so nothing is remo
 2. **Vulkan.** The build fails if turnip or lavapipe is missing, or if any loader manifest in
    `/usr/share/vulkan/icd.d` points at a library that does not exist.
 3. **Packages.** The build fails if the pass removed a package the RP6 needs to boot, sleep, connect or play
-   (bootc, dracut, NetworkManager, PipeWire, WirePlumber, BlueZ, gamescope-session, InputPlumber, FEX, …).
+   (bootc, dracut, NetworkManager, PipeWire, WirePlumber, BlueZ, gamescope-session, InputPlumber, FEX,
+   the on-screen keyboard, the CJK font, …).
 
 ## How it was audited
 
@@ -71,3 +78,8 @@ Also listed in the script but **absent from the base image**, so nothing is remo
 - The firmware allowlist omitted `qca/`, so the WCN7850 Bluetooth controller ran from ROM without its patch
   and NVM (it showed a placeholder address). `qca/` is now kept, and guard 1 replaced the hand-written list.
 - Lavapipe was removed although the software Vulkan path was meant to stay. It is now kept and guarded.
+- Upstream's static CJK font was dropped with nothing in its place, leaving no font for Japanese, Chinese or
+  Korean (names rendered as boxes). The variable font now covers them at a quarter of the size.
+- The removal checks used `rpm -q --whatrequires <name>`, which misses soname dependencies. Loops meant for the
+  CJK input methods and Qt5 would have removed the on-screen keyboard if their filter had worked; they were
+  dropped, and every removal is now gated on `rpm -e --test`.

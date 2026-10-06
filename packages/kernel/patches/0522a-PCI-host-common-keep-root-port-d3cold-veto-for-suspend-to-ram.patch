@@ -1,0 +1,39 @@
+From: unjordi <jordi.serra@pind.mx>
+Subject: [PATCH] PCI: host-common: keep the root-port D3cold veto for suspend-to-RAM
+
+Letting only endpoints veto D3cold powers the Qualcomm PCIe controller off
+during PSCI system suspend too. With the controller off,
+qcom_pcie_set_suspend_opp() drops its interconnect vote for
+PM_SUSPEND_MEM, nothing keeps a DDR vote, and an SM8550 (Retroid Pocket 6)
+never resumes from deep: 3/3 hangs at "PM: suspend entry (deep)", and a
+reset ~90 s after an RTC wake.
+
+Keep the endpoint-only rule for s2idle, where the opp-suspend floor holds
+DDR, and restore the root-port veto for suspend-to-RAM. Measured on the RP6:
+deep suspend + RTC wake returns with this behaviour (endpoint_d3cold=0
+equivalent), both with a raw write to /sys/power/state and through
+systemctl suspend.
+---
+--- a/drivers/pci/controller/pci-host-common.c
++++ b/drivers/pci/controller/pci-host-common.c
+@@ -15,6 +15,7 @@
+ #include <linux/of_pci.h>
+ #include <linux/pci-ecam.h>
+ #include <linux/platform_device.h>
++#include <linux/suspend.h>
+ 
+ #include "pci-host-common.h"
+ 
+@@ -296,7 +297,11 @@
+ 	if (!pdev->dev.driver && !pci_is_enabled(pdev))
+ 		return 0;
+ 
+-	if (endpoint_d3cold) {
++	/*
++	 * Not for suspend-to-RAM: once the controller powers off, nothing keeps a
++	 * DDR vote through PSCI system suspend and SM8550 never returns from it.
++	 */
++	if (endpoint_d3cold && pm_suspend_target_state != PM_SUSPEND_MEM) {
+ 		switch (pci_pcie_type(pdev)) {
+ 		case PCI_EXP_TYPE_ENDPOINT:
+ 		case PCI_EXP_TYPE_LEG_END:

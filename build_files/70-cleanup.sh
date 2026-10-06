@@ -73,10 +73,10 @@ done
 ./rp6-firmware-requerido.py > /tmp/rp6-firmware-requerido.txt
 [ -s /tmp/rp6-firmware-requerido.txt ] || { echo "[70-cleanup] ERROR: rp6-firmware-requerido.py listed nothing; the firmware guard would check nothing"; exit 1; }
 
-# Firmware pruning — ALLOWLIST (conservador): el SM8550 (kalama) solo usa
-# qcom (adreno a740/a6xx, venus, adsp/cdsp/modem), ath12k/ath11k (WCN7850)
-# y el audio/bt del device. Borramos TODO lo demás de /usr/lib/firmware.
-# (allowlist, no blocklist frágil: si aparece una familia nueva, se borra por defecto)
+# Firmware pruning by ALLOWLIST: the SM8550 (kalama) only loads qcom (Adreno
+# a740/a6xx, adsp/cdsp/modem, iris), ath12k/ath11k (WCN7850) and qca (Bluetooth).
+# Everything else in /usr/lib/firmware goes; a new vendor family is dropped by
+# default instead of slipping past a blocklist.
 FW_ALLOW='qcom qca ath12k ath11k ath10k ath6k ath9k brcm cypress nxp ti-connectivity'
 for d in /usr/lib/firmware/*/; do
     name="$(basename "$d")"
@@ -88,10 +88,9 @@ for d in /usr/lib/firmware/*/; do
         rm -rf "$d"
     fi
 done
-# Dentro de qcom: dejar solo las familias del kalama (a740/a6xx, adsp/cdsp/modem, wcn7850) y qcom/vpu
-# (firmware del decodificador de video iris del SM8550; sin él qcom-iris falla, /dev/video0 queda roto y
-# WirePlumber se traba al enumerarlo → sin audio. Lo vigila el chequeo de firmware al final).
-# y borrar SoCs/funciones que el SM8550 no usa.
+# Inside qcom: drop the other SoCs. qcom/vpu stays: without the iris video
+# firmware /dev/video0 breaks and WirePlumber hangs enumerating it (no audio);
+# the firmware guard at the end catches its removal.
 rm -rf \
     /usr/lib/firmware/qcom/sm8750 \
     /usr/lib/firmware/qcom/x1e80100 \
@@ -107,7 +106,7 @@ rm -rf \
     /usr/lib/firmware/qcom/apq8096 \
     /usr/lib/firmware/qcom/glymur
 
-# Doc/man pruning (🟢, ~164M): documentación y manpages no necesarios en el device.
+# Doc/man pruning (~164 MB): not needed on the device.
 rm -rf /usr/share/doc /usr/share/man
 
 # Vulkan drivers: keep turnip (Adreno A740) and lavapipe (lvp, the CPU Vulkan fallback); drop the ICDs for GPUs
@@ -125,49 +124,25 @@ for json in /usr/share/vulkan/icd.d/*.json; do
     [ -z "$lib" ] || [ -e "$lib" ] || { echo "[70-cleanup] ERROR: $json points at missing $lib"; exit 1; }
 done
 
-# CJK input methods (🟢, ~59M): libpinyin/anthy/ibus-* no se usan en el device.
-# Solo se borran si NADA del set los requiere (verificación con rpm --whatrequires).
-for pkg in libpinyin libpinyin-data anthy anthy-unicode ibus ibus-libpinyin ibus-anthy; do
-    if rpm -q "$pkg" >/dev/null 2>&1; then
-        requires="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -v '^$' || true)"
-        if [ -z "$requires" ]; then
-            dnf5 -y remove --no-autoremove "$pkg"
-        else
-            echo "WARN: $pkg requerido por: $requires — NO se borra (conservador)"
-        fi
-    fi
-done
-
-# Qt5 (🟢, ~34M): solo si NADA del set lo requiere (Plasma/KDE usa Qt6).
-# Verificación con rpm --whatrequires; si algo lo pide, NO se borra.
-for pkg in qt5-qtbase qt5-qtdeclarative qt5-qtquickcontrols2; do
-    if rpm -q "$pkg" >/dev/null 2>&1; then
-        requires="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -v '^$' || true)"
-        if [ -z "$requires" ]; then
-            dnf5 -y remove --no-autoremove "$pkg"
-        else
-            echo "WARN: $pkg requerido por: $requires — NO se borra (conservador)"
-        fi
-    fi
-done
-
-# ─── Paquetes INERTES para la RP6 (Jordi 2026-09-21: no usa Heroic, ni Firefox,
-#     ni impresión, ni desarrollo "no cocino") — peso muerto puro. Guard con
-#     --whatrequires: SOLO se quita si NADA funcional lo requiere (self-protecting;
-#     si algo lo pide, se SALTA y se loguea, no rompe el build). ─────────────────
+# Packages the RP6 build does not use (no Heroic, Firefox, printing or toolchain;
+# bazaar is the only user of webkitgtk6.0). Each is removed only when `rpm -e --test`
+# says nothing else depends on it -- that check also sees soname dependencies,
+# which `rpm -q --whatrequires <name>` misses -- so dnf never takes a dependent
+# with it. Order matters: a dependent comes before what it depends on.
 for pkg in \
     heroic-games-launcher \
     firefox \
+    bazaar \
     webkitgtk6.0 webkit2gtk4.1 webkit2gtk3 \
-    cups cups-filters cups-pk-helper cups-browsed \
-    gcc gcc-c++ cpp make automake autoconf libtool ; do
+    cups-pk-helper cups-browsed cups-filters cups \
+    gcc-c++ gcc cpp make automake autoconf libtool ; do
     rpm -q "$pkg" >/dev/null 2>&1 || continue
-    req="$(rpm -q --whatrequires "$pkg" 2>/dev/null | grep -vE '^no package|^$' || true)"
-    if [ -z "$req" ]; then
-        echo "  slim: quitando $pkg (nada lo requiere)"
-        dnf5 -y remove --no-autoremove "$pkg" || true
+    if blockers="$(rpm -e --test "$pkg" 2>&1)"; then
+        echo "  slim: removing $pkg"
+        dnf5 -y remove --no-autoremove "$pkg"
     else
-        echo "  slim: SALTO $pkg — requerido por: $req"
+        echo "  slim: keeping $pkg, other packages depend on it:"
+        printf '%s\n' "$blockers" | sed 's/^/    /'
     fi
 done
 
@@ -177,7 +152,8 @@ done
 for required in qcom-firmware atheros-firmware bootc podman skopeo dracut \
     mesa-vulkan-drivers mesa-dri-drivers NetworkManager NetworkManager-wifi \
     pipewire wireplumber bluez plasma-workspace kwin sddm flatpak \
-    gamescope-session inputplumber powerdevil fex-emu armada-rgb spectacle wireguard-tools; do
+    gamescope-session inputplumber powerdevil fex-emu armada-rgb spectacle wireguard-tools \
+    maliit-keyboard google-noto-sans-cjk-vf-fonts; do
     rpm -q "$required" >/dev/null || { echo "[70-cleanup] ERROR: $required was removed by the slim pass"; exit 1; }
 done
 

@@ -91,5 +91,23 @@ check "unvalidated model degrades a deep override to fake when only deep is adve
 check "unknown device ignores a sleep.conf deep override" \
     "$(resolve_mode 'No Such Handheld' 's2idle [deep]' 'suspend_mode=deep')" s2idle
 
+# 10. Dark resume (charger plug while in deep): on for the RP6 only, with a
+#     sleep.conf kill switch. Reads ARMADA_DARK_RESUME as device-env publishes it.
+resolve_dark() { # <model> <sleep_conf|"">
+    local mem="$WORK/mem_sleep" sconf="$WORK/dark-sleep.conf" out
+    printf 's2idle [deep]\n' >"$mem"
+    if [[ -n "${2-}" ]]; then printf '%s\n' "$2" >"$sconf"; else rm -f "$sconf"; fi
+    out=$(ARMADA_DEVICE_DIR="$DEVICE_DIR" ARMADA_MODEL="$1" \
+        ARMADA_MEM_SLEEP_PATH="$mem" ARMADA_SLEEP_CONFIG="$sconf" bash "$DEVICE_ENV")
+    eval "$out"
+    printf '%s' "${ARMADA_DARK_RESUME:-}"
+}
+check "RP6 enables dark resume by default" "$(resolve_dark 'Retroid Pocket 6' '')" 1
+check "RP6 sleep.conf dark_resume=0 turns it off" "$(resolve_dark 'Retroid Pocket 6' 'dark_resume=0')" 0
+check "RP6 sleep.conf dark_resume=1 keeps it on (and coexists with suspend_mode)" \
+    "$(resolve_dark 'Retroid Pocket 6' $'suspend_mode=deep\ndark_resume=1')" 1
+check "other devices keep dark resume off" "$(resolve_dark 'AYN Odin 2' '')" 0
+check "garbage dark_resume value is ignored" "$(resolve_dark 'Retroid Pocket 6' 'dark_resume=maybe')" 1
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

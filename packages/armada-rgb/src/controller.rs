@@ -1,4 +1,5 @@
-use crate::{config, runtime, EffectState, LightingBackend, LightingConfig};
+use crate::rgb_saturation_helper::rgb_after_saturation;
+use crate::{config, runtime, Effect, EffectState, LightingBackend, LightingConfig};
 use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
@@ -114,19 +115,12 @@ impl Controller {
             }
 
             let t: f64 = start.elapsed().as_secs_f64();
-            let (frame, brightness) = effects.render(
-                config.effect,
-                config.rgb(),
-                config.brightness,
-                config.speed,
-                t,
-                count,
-            );
+            let (colors, brightness) = animated_frame(&mut effects, &config, t, count);
             // `sync_brightness` scales whatever brightness the effect just
             // computed (a plain color, a breath, rainbow, ...) — it composes
             // with any effect rather than being one itself.
             let brightness: u8 = effects.scale_for_sync(brightness, config.sync_brightness);
-            if let Err(error) = self.backend.render(&frame.expand(count), brightness) {
+            if let Err(error) = self.backend.render(&colors, brightness) {
                 eprintln!("armada-rgb: render failed: {error:#}");
             }
             sleep(Duration::from_secs_f64(config.effect.frame_interval(FPS)));
@@ -134,6 +128,62 @@ impl Controller {
     }
 }
 
+/// One animated frame with the saturation slider applied the way the static
+/// path applies it: to the base color, and to the colors an effect synthesizes
+/// from a hue. screen_sync mirrors the screen, so its sampled colors are left
+/// as captured.
+fn animated_frame(
+    effects: &mut EffectState,
+    config: &LightingConfig,
+    t: f64,
+    count: usize,
+) -> (Vec<[u8; 3]>, u8) {
+    let base: [u8; 3] = rgb_after_saturation(config.rgb(), config.saturation);
+    let (frame, brightness) =
+        effects.render(config.effect, base, config.brightness, config.speed, t, count);
+    let mut colors: Vec<[u8; 3]> = frame.expand(count);
+    if config.effect != Effect::ScreenSync {
+        for color in &mut colors {
+            *color = rgb_after_saturation(*color, config.saturation);
+        }
+    }
+    (colors, brightness)
+}
+
 fn config_mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|meta| meta.modified()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(effect: Effect, color: &str, saturation: u8) -> LightingConfig {
+        LightingConfig {
+            effect,
+            color: color.into(),
+            saturation,
+            ..LightingConfig::default()
+        }
+    }
+
+    #[test]
+    fn animated_effects_honour_the_saturation_slider() {
+        let mut effects: EffectState = EffectState::default();
+        // Breathing paints the base color: same transform as the static path.
+        let (colors, _) = animated_frame(&mut effects, &config(Effect::Breathing, "FF0000", 50), 0.0, 2);
+        assert_eq!(colors, vec![[255, 128, 128]; 2]);
+        // Hue effects synthesize fully saturated colors; the slider desaturates them.
+        let (colors, _) = animated_frame(&mut effects, &config(Effect::ColorCycle, "FFFFFF", 0), 0.0, 2);
+        assert_eq!(colors, vec![[255, 255, 255]; 2], "saturation 0 turns the cycle white");
+        let (colors, _) = animated_frame(&mut effects, &config(Effect::Rainbow, "FFFFFF", 0), 0.0, 4);
+        assert!(colors.iter().all(|c| c[0] == c[1] && c[1] == c[2]), "rainbow at 0 is gray: {colors:?}");
+    }
+
+    #[test]
+    fn full_saturation_leaves_animated_colors_as_rendered() {
+        let mut effects: EffectState = EffectState::default();
+        let (colors, _) = animated_frame(&mut effects, &config(Effect::ColorCycle, "FFFFFF", 100), 0.0, 1);
+        assert_eq!(colors, vec![[255, 0, 0]], "hue 0 at full saturation is red");
+    }
 }
