@@ -175,7 +175,7 @@ jobs:
           set -euxo pipefail
           # --cache-from only. Nothing here may write to the registry.
           buildah build \
-            -f packages/Containerfile \
+            -f "$(packages/containerfile-for.sh "${PACKAGE}")" \
             --target "out-${PACKAGE}" \
             --layers \
             --cache-from "${UPSTREAM_CACHE}/${PACKAGE}" \
@@ -288,7 +288,7 @@ jobs:
           while read -r pkg hash; do
             echo "::group::${pkg}"
             buildah build \
-              -f packages/Containerfile \
+              -f "$(packages/containerfile-for.sh "${pkg}")" \
               --target "out-${pkg}" \
               --layers \
               --cache-from "${UPSTREAM_CACHE}/${pkg}" \

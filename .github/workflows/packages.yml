@@ -154,7 +154,7 @@ jobs:
           REF="ghcr.io/${owner,,}/armada/pkg/${PACKAGE}:${HASH}"
 
           buildah build \
-            -f packages/Containerfile \
+            -f "$(packages/containerfile-for.sh "${PACKAGE}")" \
             --target "out-${PACKAGE}" \
             --layers \
             --cache-from "${CACHE_REPO}" \

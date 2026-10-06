@@ -19,6 +19,15 @@ artifacts in the layout the image build bind-mounts at `/packages/<name>`.
 Running the build as a step is what lets it cache as a layer, so an unchanged
 package is not rebuilt.
 
+A package can instead ship its own `Containerfile.package` with the same
+`out-<name>` contract (see `terra-pins`); `containerfile-for.sh` picks it, so
+adding such a package does not change the hash of every other one, which
+`package-hash.sh` derives from the shared `Containerfile`.
+
+`terra-pins` holds the RPMs the image takes from Terra, fixed by sha256 in
+`pins.txt`: the image build installs them from this package and never talks to
+Terra, so a Terra outage cannot break it.
+
 ## Building one
 
 From the repository root:

@@ -3,6 +3,11 @@ set -euxo pipefail
 
 cd /ctx/build_files
 
+# Every dnf5 call in the build retries transient repository failures
+# (dnf-retry.sh). /tmp is a tmpfs mount, so the shim never reaches the image.
+install -Dm0755 ./dnf-retry.sh /tmp/armada-dnf/dnf5
+export PATH="/tmp/armada-dnf:${PATH}"
+
 run_step() {
     local step="${1#./}"
     local start="${SECONDS}"
