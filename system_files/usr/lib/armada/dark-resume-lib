@@ -4,17 +4,23 @@
 # (not a registered wake IRQ) and the kernel always resumes fully (PSCI has no
 # "sleep again" path). We keep user sessions frozen and this suspend job alive
 # (logind never emits PrepareForSleep(false), Steam/gamescope never notice) and
-# sleep again while the ONLY change was the charger. The `pre` hooks of each
-# round repaint the charge LED (56) and set the fan floor (55).
+# sleep again unless the wake came from the power button (or an rtc alarm that
+# somebody armed on purpose). A charger plug/unplug and any wake we cannot name
+# (battmgr doorbells, mostly) go back to sleep. The `pre` hooks of each round
+# repaint the charge LED (56) and set the fan floor (55).
 #
-# Safety contract: any doubt (cannot freeze, cannot read the charger, sleep
-# failed, unknown wake reason, round cap) ends in a FULL resume, as without this
-# lib. user.slice is always thawed on exit. Design: DISENO.md of the dark-resume
+# Safety contract: cannot freeze, sleep failed, or a wake storm (many rounds in
+# a row that each slept only a few seconds) ends in a FULL resume, as without
+# this lib. user.slice is always thawed on exit. Design: DISENO.md of the dark-resume
 # project; behaviour pinned by tests/dark-resume-test.sh.
 
 dr_sysfs=${ARMADA_SYSFS_ROOT:-/sys}
 dr_interrupts=${ARMADA_PROC_INTERRUPTS:-/proc/interrupts}
-dr_max=${ARMADA_DARK_RESUME_MAX:-30}
+# Storm guard: this many consecutive rounds, each asleep less than
+# dr_storm_secs, end the loop (something keeps waking it; better awake than
+# spinning). A round that slept longer resets the count.
+dr_max=${ARMADA_DARK_RESUME_MAX:-20}
+dr_storm_secs=${ARMADA_DARK_RESUME_STORM_SECS:-15}
 dr_log=${ARMADA_DARK_RESUME_LOG:-/var/lib/armada/wake-ledger.log}
 dr_systemctl=${ARMADA_SYSTEMCTL:-systemctl}
 dr_hook56=${ARMADA_DARK_RESUME_HOOK56:-/usr/lib/systemd/system-sleep/56-armada-rgb-suspend-charging}
@@ -125,6 +131,14 @@ display_off_session() {
     printf '%s\n' "$v" >"$dr_bl_save" 2>/dev/null || { dr_bl_dir=""; return 0; }
     echo 0 >"$dr_bl_dir/brightness" 2>/dev/null
 }
+# The panel's actual brightness right now, for the ledger: the evidence that a
+# dark round really kept it dark (B1). "-" when B1 is not driving a panel.
+panel_state() {
+    local v
+    [[ -n "$dr_bl_dir" ]] && v=$(cat "$dr_bl_dir/actual_brightness" 2>/dev/null) && [[ "$v" =~ ^[0-9]+$ ]] \
+        && { printf '%s' "$v"; return; }
+    printf -- '-'
+}
 display_on_session() {
     [[ -n "$dr_bl_dir" && -s "$dr_bl_save" ]] || return 0
     cat "$dr_bl_save" >"$dr_bl_dir/brightness" 2>/dev/null && rm -f "$dr_bl_save"
@@ -133,7 +147,7 @@ display_on_session() {
 
 dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
     local bin=$1; shift
-    local rc=0 rounds=0 pk0 pk1 on0 on1 name reason=unknown
+    local rc=0 rounds=0 short=0 pk0 pk1 on0 on1 name t0 reason=other
 
     display_off_session
     if ! "$dr_systemctl" freeze user.slice 2>/dev/null; then
@@ -149,7 +163,9 @@ dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
         pk0=$(irq_count pmic_pwrkey); on0=$(charger_online)
         mkdir -p "$(dirname "$dr_pwrkey0")" 2>/dev/null
         printf '%s\n' "$pk0" >"$dr_pwrkey0" 2>/dev/null
+        t0=$(date +%s)
         SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=0 "$bin" suspend "$@"; rc=$?
+        if (( $(date +%s) - t0 < dr_storm_secs )); then (( ++short )); else short=0; fi
         pk1=$(irq_count pmic_pwrkey); on1=$(charger_online); name=$(wake_irq_name)
         if (( rc == 0 && pk1 == pk0 )) && [[ "$name" != *pwrkey* && "$name" != *rtc* && "$name" != *alarm* &&
               "$on0" != '?' && "$on1" == "$on0" ]]; then
@@ -158,28 +174,30 @@ dark_resume_loop() { # $1 = systemd-sleep binary, rest = its extra args
         if (( rc != 0 )); then reason=failed
         elif (( pk1 > pk0 )) || [[ "$name" == *pwrkey* ]]; then reason=user
         elif [[ "$name" == *rtc* || "$name" == *alarm* ]]; then reason=rtc
-        elif [[ "$on0" != '?' && "$on1" != '?' && "$on1" != "$on0" ]]; then
-            reason=charger
-            (( ++rounds < dr_max )) || reason=cap
-        else reason=unknown
+        elif [[ "$on0" != '?' && "$on1" != '?' && "$on1" != "$on0" ]]; then reason=charger
+        else reason=other   # nothing we can name changed: battmgr doorbell and the like
         fi
-        printf '%s dark-resume reason=%s online=%s->%s round=%d\n' \
-            "$(date --iso-8601=seconds)" "$reason" "$on0" "$on1" "$rounds" >>"$dr_log" 2>/dev/null
-        [[ "$reason" == charger ]] || break
-        settle_battery_status "$on1"
+        if [[ "$reason" == charger || "$reason" == other ]]; then
+            (( ++rounds ))
+            (( short < dr_max )) || reason=cap
+        fi
+        printf '%s dark-resume reason=%s online=%s->%s round=%d panel=%s\n' \
+            "$(date --iso-8601=seconds)" "$reason" "$on0" "$on1" "$rounds" "$(panel_state)" >>"$dr_log" 2>/dev/null
+        [[ "$reason" == charger || "$reason" == other ]] || break
+        [[ "$reason" == charger ]] && settle_battery_status "$on1"
         # Pressed during the settle window -> the user wins.
         if (( $(irq_count pmic_pwrkey) != pk1 )); then
             reason=user
-            printf '%s dark-resume reason=user online=%s->%s round=%d\n' \
-                "$(date --iso-8601=seconds)" "$on1" "$on1" "$rounds" >>"$dr_log" 2>/dev/null
+            printf '%s dark-resume reason=user online=%s->%s round=%d panel=%s\n' \
+                "$(date --iso-8601=seconds)" "$on1" "$on1" "$rounds" "$(panel_state)" >>"$dr_log" 2>/dev/null
             break
         fi
     done
 
     # Inside the loop the hook's `post` keeps the charge indicator up on every
     # non-user wake (the next thing is usually another sleep); so whenever the
-    # loop ends in a FULL resume that was not the power button -- rtc, unknown,
-    # cap, failure, even on the first round -- hand the LEDs back explicitly.
+    # loop ends in a FULL resume that was not the power button -- rtc, cap,
+    # failure, even on the first round -- hand the LEDs back explicitly.
     if [[ "$reason" != user ]]; then
         ARMADA_RGB_FORCE_RESTORE=1 "$dr_hook56" post suspend 2>/dev/null || true
     fi

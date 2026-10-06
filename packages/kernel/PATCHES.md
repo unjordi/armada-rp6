@@ -764,7 +764,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0912-power-supply-qcom-battmgr-pause-notifications-during-system-suspend.patch`
   source: armada
   upstream: local
-  notes: Pauses battmgr firmware notifications across system suspend on battery, so status pushes from the ADSP stop waking a device that is not charging.
+  notes: Pauses battmgr firmware notifications across system suspend (on battery and while charging), so status pushes from the ADSP stop waking the device; plug/unplug still wake it.
 - `dts/qcs8550-retroidpocket-rp6-suspend.dts.patch`
   source: armada
   notes: Marks the HTR3212 controllers always-on and drops regulator-off-in-suspend from vdd_fan_5v0, for the charge indicator (0030a) and the fan floor (0533) in suspend-to-RAM.
