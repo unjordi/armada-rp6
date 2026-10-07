@@ -5,3 +5,4 @@ cosign.key
 __pycache__/
 *.pyc
 
+system_files/usr/share/armada/release-notes.md

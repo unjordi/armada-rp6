@@ -279,4 +279,9 @@ export const ptPT = {
   "errors.noRunningGame": "nenhum jogo em execução para reaplicar",
   "errors.bottomScreenBrightnessReadFailed": "não foi possível ler o brilho do ecrã inferior",
   "errors.rgbInvalidResponse": "resposta inválida do armada-rgb",
+  "releaseNotes.button": "Notas da versão",
+  "releaseNotes.title": "Novidades da {version}",
+  "releaseNotes.titleNoVersion": "Novidades",
+  "releaseNotes.pending": "Atualização disponível",
+  "releaseNotes.installed": "Versão instalada",
 } as const satisfies Record<TranslationKey, string>;

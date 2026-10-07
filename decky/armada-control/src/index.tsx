@@ -2,6 +2,7 @@ import { definePlugin } from "@decky/api";
 import { getCompatApplied, getConfig, getInstalledGames, saveCompatApplied } from "./backend";
 import { ActiveProfileBadge } from "./components/ActiveProfileBadge";
 import { Content } from "./Content";
+import { installUpdateReleaseNotes } from "./lib/updateNotesPatch";
 import { installTopBarProfileIndicator, setTopBarIndicatorGeometry } from "./lib/topBarProfileIndicator";
 import {
   configureCompatPolicy,
@@ -22,6 +23,9 @@ export default definePlugin(() => {
   // Live power-profile glyph in Steam's top bar, between battery and clock
   // (lib/topBarProfileIndicator.tsx). Disposed in onDismount below.
   const removeTopBarGlyph = installTopBarProfileIndicator();
+  // This OS's release notes behind the update field's options button
+  // (lib/updateNotesPatch.tsx). Disposed in onDismount below.
+  const removeUpdateNotes = installUpdateReleaseNotes();
   let cancelled = false;
   const handledRequest = getCompatApplied()
     .then((state) => ({ state, loaded: true }))
@@ -82,6 +86,7 @@ export default definePlugin(() => {
       cancelled = true;
       unregisterDownloadWatcher();
       removeTopBarGlyph?.();
+      removeUpdateNotes();
     },
     icon: (
       <svg

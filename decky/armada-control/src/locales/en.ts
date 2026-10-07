@@ -277,6 +277,11 @@ export const en = {
   "errors.noRunningGame": "no running game to re-apply",
   "errors.bottomScreenBrightnessReadFailed": "could not read bottom-screen brightness",
   "errors.rgbInvalidResponse": "invalid armada-rgb response",
+  "releaseNotes.button": "Release notes",
+  "releaseNotes.title": "What's new in {version}",
+  "releaseNotes.titleNoVersion": "What's new",
+  "releaseNotes.pending": "Available update",
+  "releaseNotes.installed": "Installed version",
 } as const;
 
 export type TranslationKey = keyof typeof en;

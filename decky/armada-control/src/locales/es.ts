@@ -280,4 +280,9 @@ export const es = {
   "errors.noRunningGame": "no hay un juego abierto al cual volver a aplicar",
   "errors.bottomScreenBrightnessReadFailed": "no se pudo leer el brillo de la pantalla inferior",
   "errors.rgbInvalidResponse": "respuesta no válida de armada-rgb",
+  "releaseNotes.button": "Notas de versión",
+  "releaseNotes.title": "Novedades de {version}",
+  "releaseNotes.titleNoVersion": "Novedades",
+  "releaseNotes.pending": "Actualización disponible",
+  "releaseNotes.installed": "Versión instalada",
 } as const satisfies Record<TranslationKey, string>;

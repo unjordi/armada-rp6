@@ -279,4 +279,9 @@ export const zhCN = {
   "errors.noRunningGame": "没有可重新应用的运行中游戏",
   "errors.bottomScreenBrightnessReadFailed": "无法读取底部屏幕亮度",
   "errors.rgbInvalidResponse": "armada-rgb 响应无效",
+  "releaseNotes.button": "发行说明",
+  "releaseNotes.title": "{version} 的新功能",
+  "releaseNotes.titleNoVersion": "新功能",
+  "releaseNotes.pending": "可用更新",
+  "releaseNotes.installed": "已安装版本",
 } as const satisfies Record<TranslationKey, string>;
