@@ -67,3 +67,4 @@ export const saveFanCurves = (fanCurves: Record<string, FanCurve>, fanSettings: 
   call<[Record<string, FanCurve>, FanSettings], CurvesState>("save_fan_curves", fanCurves, fanSettings);
 export const getCurrentTemp = () => call<[], number | null>("get_current_temp");
 export const setBatteryFanEnabled = (enabled: boolean) => call<[boolean], CurvesState>("set_battery_fan_enabled", enabled);
+export const setBatteryFanProfile = (profile: string) => call<[string], CurvesState>("set_battery_fan_profile", profile);

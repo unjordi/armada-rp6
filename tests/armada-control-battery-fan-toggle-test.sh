@@ -36,6 +36,13 @@ factory.write_text(
     "smoothing=0.50\n"
     "[battery_fan]\n"
     "enabled=1\n"
+    "profile=quiet\n"
+    "[battery_fan_curve.quiet]\n"
+    "label=Quiet\n"
+    "charging_boost=16\n"
+    "curve=47:255,40:51\n"
+    "[battery_fan_curve.aggressive]\n"
+    "label=Aggressive\n"
     "charging_boost=36\n"
     "curve=46:255,44:216\n"
 )
@@ -93,6 +100,47 @@ for bad in (1, "true", None):
         pass
     else:
         raise AssertionError(f"non-bool enabled was accepted: {bad!r}")
+
+# 5) battery floor profiles: state exposes the selected profile and the
+# available ones with their curve/boost.
+etc.write_text("")
+state = fan_curves.get_state()
+assert state["batteryFanProfile"] == "quiet", state["batteryFanProfile"]
+assert set(state["batteryFanProfiles"]) == {"quiet", "aggressive"}, state["batteryFanProfiles"]
+assert state["batteryFanProfiles"]["aggressive"] == {
+    "label": "Aggressive", "curve": "46:255,44:216", "charging_boost": 36}, state["batteryFanProfiles"]
+
+# 6) selecting a non-default profile writes ONLY [battery_fan] profile;
+# selecting the factory default clears the override.
+rendered = fan_curves.render_battery_fan_profile("aggressive")
+assert "profile = aggressive" in rendered, rendered
+assert "[profile.balanced]" not in rendered and "[fan_curve.default]" not in rendered, rendered
+assert fan_curves.render_battery_fan_profile("quiet") == "", "factory default left an override"
+
+# 7) a direct curve/charging_boost shadows the profile, so selecting a profile drops them;
+# unrelated keys survive.
+etc.write_text("[battery_fan]\nenabled = 0\ncurve = 40:100\ncharging_boost = 5\n")
+rendered = fan_curves.render_battery_fan_profile("aggressive")
+assert "curve" not in rendered and "charging_boost" not in rendered, rendered
+assert "enabled = 0" in rendered and "profile = aggressive" in rendered, rendered
+etc.write_text("")
+
+# 8) set_battery_fan_profile(): writes via the privileged helper, returns
+# refreshed state, and rejects unknown / non-string profiles without writing.
+calls.clear()
+next_state = fan_curves.set_battery_fan_profile("aggressive")
+action, payload = calls.pop()
+assert action == "write_config" and payload.get("name") == "power", (action, payload)
+assert next_state["batteryFanProfile"] == "aggressive", next_state["batteryFanProfile"]
+etc.write_text("")
+for bad in ("nope", "", None, 1, "fan_curve.default"):
+    try:
+        fan_curves.set_battery_fan_profile(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"unknown profile was accepted: {bad!r}")
+assert not calls, f"rejected profile still wrote: {calls}"
 
 print("Armada Control battery-fan-toggle tests passed")
 PYEOF

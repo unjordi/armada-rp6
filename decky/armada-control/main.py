@@ -41,6 +41,7 @@ from armada_control.fan_curves import (
     save_all as save_fan_curves,
     save_charging_pwm,
     set_battery_fan_enabled,
+    set_battery_fan_profile,
 )
 from armada_control.fan_sensors import get_current_temp
 
@@ -175,6 +176,9 @@ class Plugin:
     # of the curve editor's Save flow.
     async def set_battery_fan_enabled(self, enabled):
         return await asyncio.to_thread(set_battery_fan_enabled, enabled)
+
+    async def set_battery_fan_profile(self, profile):
+        return await asyncio.to_thread(set_battery_fan_profile, profile)
 
     # Polled separately from get_fans_state -- see hooks/useCurrentTemp.
     async def get_current_temp(self):

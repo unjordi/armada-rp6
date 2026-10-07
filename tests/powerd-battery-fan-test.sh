@@ -95,29 +95,71 @@ def set_battery(temp_c=None, status="Discharging"):
 power = make_power()
 power.load_battery_fan_config()
 check("factory battery_fan enabled", power.battery_enabled is True)
-check("factory charging boost loaded", power.battery_charging_boost == 36)
-check("factory curve has 7 knots", len(power.battery_curve) == 7)
+check("factory default profile is quiet: boost 16", power.battery_charging_boost == 16)
+check("factory default profile is quiet: curve",
+      power.battery_curve == sorted([(47, 255), (46, 200), (45, 150), (44, 110),
+                                     (42, 80), (40, 51), (38, 0)]))
 check("curve sorted ascending by temp",
       power.battery_curve == sorted(power.battery_curve))
 
-# --- floor is inert below the coolest knot (35 C -> 0) ----------------------
+# --- floor is inert below the coolest knot (38 C -> 0) ----------------------
 set_battery(30, "Discharging")
 check("cool battery -> no floor (discharging)", power.battery_target_pwm() == 0)
 set_battery(30, "Charging")
 check("cool battery -> no floor even charging", power.battery_target_pwm() == 0)
-set_battery(35, "Charging")
-check("35 C knot is 0 -> no floor", power.battery_target_pwm() == 0)
+set_battery(38, "Charging")
+check("38 C knot is 0 -> no floor", power.battery_target_pwm() == 0)
 
 # --- warm battery: interpolated + quantized, discharging vs charging --------
-set_battery(40, "Discharging")
-check("40 C discharging floor = 144", power.battery_target_pwm() == 144)
-set_battery(40, "Charging")
-check("40 C charging floor = 176 (144 + boost, quantized)",
-      power.battery_target_pwm() == 176)
+set_battery(44, "Discharging")
+check("quiet: 44 C discharging floor = 110 -> 112 quantized", power.battery_target_pwm() == 112)
+set_battery(44, "Charging")
+check("quiet: 44 C charging floor = 128 (110 + 16, quantized)",
+      power.battery_target_pwm() == 128)
 set_battery(50, "Charging")
 check("hot battery clamps to max 255", power.battery_target_pwm() == 255)
 set_battery(50, "Discharging")
 check("hot battery clamps to max 255 discharging", power.battery_target_pwm() == 255)
+
+# --- profile selection: aggressive uses its own curve and boost ---------------
+def with_override(text):
+    with open(etc_conf, "w") as f:
+        f.write(text)
+    powerd.CONFIG_FILE = powerd.Path(etc_conf)
+    p = make_power()
+    p.load_battery_fan_config()
+    return p
+
+
+aggr = with_override("[battery_fan]\nprofile=aggressive\n")
+check("aggressive: boost 36", aggr.battery_charging_boost == 36)
+check("aggressive: curve has 7 knots", len(aggr.battery_curve) == 7)
+set_battery(40, "Discharging")
+check("aggressive: 40 C discharging floor = 144", aggr.battery_target_pwm() == 144)
+set_battery(40, "Charging")
+check("aggressive: 40 C charging floor = 176", aggr.battery_target_pwm() == 176)
+check("quiet at 40 C charging stays lower than aggressive",
+      power.battery_target_pwm() == 64)
+
+# a direct curve/charging_boost in [battery_fan] wins over the selected profile
+direct = with_override("[battery_fan]\nprofile=aggressive\ncharging_boost=0\ncurve=40:200,50:200\n")
+set_battery(45, "Charging")
+check("direct curve overrides profile curve", direct.battery_target_pwm() == 200)
+check("direct charging_boost overrides profile boost", direct.battery_charging_boost == 0)
+# only the boost set directly: the profile curve still applies
+boost_only = with_override("[battery_fan]\nprofile=aggressive\ncharging_boost=0\n")
+set_battery(40, "Charging")
+check("direct boost only: profile curve kept, boost 0",
+      boost_only.battery_target_pwm() == 144 and boost_only.battery_charging_boost == 0)
+# unknown profile falls back to the default profile instead of going inert
+unknown = with_override("[battery_fan]\nprofile=nope\n")
+check("unknown profile falls back to quiet", unknown.battery_charging_boost == 16)
+# enabled=0 stays inert whatever the profile
+off = with_override("[battery_fan]\nenabled=0\nprofile=aggressive\n")
+set_battery(45, "Charging")
+check("enabled=0 with profile selected is inert",
+      off.battery_enabled is False and off.battery_target_pwm() == 0)
+powerd.CONFIG_FILE = powerd.Path(os.path.join(WORK, "no-such-etc.conf"))
 
 # --- unreadable sensor -> inert (never blindly spin) ------------------------
 set_battery(None, "Charging")
@@ -173,16 +215,16 @@ def tick(curve_pwm, temp_c, status, on_ac, charging_pwm=0):
         return int(f.read().strip())
 
 
-check("tick: warm battery lifts a quiet CPU curve (40 C -> 144)",
-      tick(64, 40, "Discharging", False) == 144)
+check("tick: warm battery lifts a quiet CPU curve (44 C -> 112)",
+      tick(64, 44, "Discharging", False) == 112)
 check("tick: a louder CPU curve wins over the battery floor",
-      tick(200, 40, "Discharging", False) == 200)
+      tick(200, 44, "Discharging", False) == 200)
 check("tick: cool battery leaves the CPU curve alone",
       tick(64, 30, "Discharging", False) == 64)
 check("tick: upstream charging floor still applies with a cool battery",
       tick(64, 30, "Charging", True, charging_pwm=96) == 96)
 check("tick: battery floor + boost beats the charging floor when warm",
-      tick(64, 40, "Charging", True, charging_pwm=96) == 176)
+      tick(64, 44, "Charging", True, charging_pwm=96) == 128)
 
 if failures:
     print(f"\n{len(failures)} battery-fan check(s) failed", file=sys.stderr)

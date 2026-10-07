@@ -207,4 +207,13 @@ export interface CurvesState {
   // stays factory-only; this turns the behaviour on/off and applies
   // immediately (not part of the curve editor's Save flow).
   batteryFanEnabled: boolean;
+  // Selected [battery_fan_curve.<name>] profile; applies immediately like the toggle.
+  batteryFanProfile: string;
+  batteryFanProfiles: Record<string, BatteryFanProfile>;
+}
+
+export interface BatteryFanProfile {
+  label: string;
+  curve: string;
+  charging_boost: number;
 }

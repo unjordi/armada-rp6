@@ -39,6 +39,7 @@ FAN_SAFE_PWM = 128
 # the section is absent or enabled=0 this is INERT (stock behaviour).
 BATTERY_TEMP_PATH = Path("/sys/class/power_supply/battery/temp")      # deci-Celsius
 BATTERY_STATUS_PATH = Path("/sys/class/power_supply/battery/status")  # Charging/Discharging/...
+BATTERY_FAN_DEFAULT_PROFILE = "quiet"
 
 
 def normalize_profile(profile):
@@ -592,12 +593,24 @@ class ArmadaPower:
                 return
             if not parser.getboolean("battery_fan", "enabled", fallback=True):
                 return
-            curve = parse_fan_curve(parser.get("battery_fan", "curve", fallback=""))
+            # Direct curve/charging_boost keys in [battery_fan] win over the
+            # selected [battery_fan_curve.<profile>] section.
+            profile = parser.get("battery_fan", "profile", fallback=BATTERY_FAN_DEFAULT_PROFILE).strip()
+            section = f"battery_fan_curve.{profile}"
+            if not parser.has_section(section):
+                section = f"battery_fan_curve.{BATTERY_FAN_DEFAULT_PROFILE}"
+
+            def lookup(key):
+                for name in ("battery_fan", section):
+                    if parser.has_option(name, key):
+                        return parser.get(name, key)
+                return None
+
+            curve = parse_fan_curve(lookup("curve") or "")
             if not curve:
                 return
             self.battery_curve = sorted(curve)   # ascending by temperature
-            self.battery_charging_boost = clamp(
-                parser.getint("battery_fan", "charging_boost", fallback=0), 0, 255)
+            self.battery_charging_boost = clamp(int(lookup("charging_boost") or 0), 0, 255)
             self.battery_enabled = True
         except Exception as exc:
             print(f"armada-powerd: [battery_fan] invalid, ignored: {exc}", file=sys.stderr)
