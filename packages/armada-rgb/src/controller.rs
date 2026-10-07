@@ -8,9 +8,13 @@ use std::time::{Duration, Instant, SystemTime};
 /// Frames per second for animated effects that do not set their own cadence.
 const FPS: u32 = 30;
 
+/// PID file the running daemon writes; lives in the service's RuntimeDirectory.
+const DAEMON_PID_PATH: &str = "/run/armada-rgb/daemon.pid";
+
 pub struct Controller {
     config_path: PathBuf,
     backend: LightingBackend,
+    daemon_pid_path: PathBuf,
 }
 
 impl Controller {
@@ -18,7 +22,23 @@ impl Controller {
         Self {
             config_path,
             backend,
+            daemon_pid_path: PathBuf::from(DAEMON_PID_PATH),
         }
+    }
+
+    /// Overrides where the daemon PID file is read and written.
+    pub fn with_daemon_pid_path(mut self, path: PathBuf) -> Self {
+        self.daemon_pid_path = path;
+        self
+    }
+
+    /// True when the PID file names a live process: the daemon repaints from
+    /// the saved config, so a one-shot paint would only flash over its frame.
+    pub fn daemon_running(&self) -> bool {
+        std::fs::read_to_string(&self.daemon_pid_path)
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok())
+            .is_some_and(|pid| Path::new(&format!("/proc/{pid}")).exists())
     }
 
     pub fn from_env() -> Self {
@@ -43,7 +63,9 @@ impl Controller {
         if config.correction.is_none() {
             config.correction = self.backend.default_correction();
         }
-        self.backend.apply(&config)?;
+        if !self.daemon_running() {
+            self.backend.apply(&config)?;
+        }
         config::save(&self.config_path, &config)?;
         Ok(config)
     }
@@ -80,6 +102,9 @@ impl Controller {
         let mut config: LightingConfig = self.get()?;
         let mut seen: Option<SystemTime> = config_mtime(&self.config_path);
         let start: Instant = Instant::now();
+        if let Err(error) = std::fs::write(&self.daemon_pid_path, format!("{}\n", std::process::id())) {
+            eprintln!("armada-rgb: cannot write {}: {error}", self.daemon_pid_path.display());
+        }
 
         loop {
             let current: Option<SystemTime> = config_mtime(&self.config_path);

@@ -604,3 +604,37 @@ fn cli_reports_profile_support() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+#[test]
+fn set_only_saves_while_the_daemon_runs() {
+    let fixture: Fixture = Fixture::new();
+    let targets: Vec<String> = vec!["rgb:l1".to_string()];
+    fixture.target("rgb:l1", "red green blue", "255");
+    let pid_file: PathBuf = fixture.root.join("daemon.pid");
+    fs::write(&pid_file, format!("{}\n", std::process::id())).unwrap();
+    let controller: Controller = fixture.controller(&targets).with_daemon_pid_path(pid_file);
+
+    let saved: LightingConfig = controller.set(enabled("FF8000", 25)).unwrap();
+
+    assert_eq!(fixture.value("rgb:l1", "multi_intensity"), "unchanged");
+    assert_eq!(fixture.value("rgb:l1", "brightness"), "unchanged");
+    assert_eq!(controller.get().unwrap().color, saved.color);
+}
+
+#[test]
+fn set_paints_when_the_daemon_pid_is_stale_or_missing() {
+    let fixture: Fixture = Fixture::new();
+    let targets: Vec<String> = vec!["rgb:l1".to_string()];
+    fixture.target("rgb:l1", "red green blue", "255");
+    let pid_file: PathBuf = fixture.root.join("daemon.pid");
+    fs::write(&pid_file, "999999999\n").unwrap();
+    let controller: Controller = fixture.controller(&targets).with_daemon_pid_path(pid_file.clone());
+
+    controller.set(enabled("FF8000", 25)).unwrap();
+    assert_eq!(fixture.value("rgb:l1", "brightness"), "64");
+
+    fs::remove_file(&pid_file).unwrap();
+    fs::write(fixture.leds.join("rgb:l1/brightness"), "unchanged\n").unwrap();
+    controller.set(enabled("FF8000", 25)).unwrap();
+    assert_eq!(fixture.value("rgb:l1", "brightness"), "64");
+}
