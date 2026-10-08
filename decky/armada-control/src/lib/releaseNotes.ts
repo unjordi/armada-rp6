@@ -85,3 +85,42 @@ export function overrideProps(node: any, match: (props: any) => boolean, overrid
   }
   return props === node.props ? node : { ...node, props };
 }
+
+// True for the source of Steam's update-status component, which renders the
+// update-available rows and the news card below the update field.
+export function isUpdateStatusSource(source: string): boolean {
+  return source.indexOf("update_check_results") >= 0
+    && source.indexOf("#Settings_System_Update_Available") >= 0;
+}
+
+// The notes card replaces Steam's news card only for an update that is not installed yet.
+export function replacesNewsCard(notes: { source: NotesSource } | null | undefined): boolean {
+  return !!notes && notes.source === "pending";
+}
+
+// Returns a copy of a React element tree where every element accepted by `match`
+// is replaced by `replace(element)`. Elements are never mutated.
+export function replaceElements(node: any, match: (props: any) => boolean, replace: (element: any) => any): any {
+  if (Array.isArray(node)) {
+    const mapped = node.map((child) => replaceElements(child, match, replace));
+    return mapped.every((child, i) => child === node[i]) ? node : mapped;
+  }
+  if (!node || typeof node !== "object" || !node.props) return node;
+  if (match(node.props)) return replace(node);
+  if (node.props.children === undefined) return node;
+  const children = replaceElements(node.props.children, match, replace);
+  return children === node.props.children ? node : { ...node, props: { ...node.props, children } };
+}
+
+export interface CompactNotes {
+  version: string | null;
+  lines: string[];
+  hidden: number;
+}
+
+// The first `maxLines` entry titles of the notes; `hidden` counts the rest.
+export function compactNotes(markdown: string, maxLines = 6): CompactNotes {
+  const { version, blocks } = parseReleaseNotes(markdown);
+  const all = blocks.flatMap((block) => (block.kind === "heading" || !block.text ? [] : [block.text]));
+  return { version, lines: all.slice(0, maxLines), hidden: Math.max(0, all.length - maxLines) };
+}

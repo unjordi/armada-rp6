@@ -21,7 +21,15 @@ echo "$2" >"$SKOPEO_ARG_FILE"
 [[ -z "${SKOPEO_FAIL:-}" ]] || exit 1
 cat "$SKOPEO_FIXTURE"
 STUB
-chmod +x "$tmp/bin/rpm-ostree" "$tmp/bin/skopeo"
+# bootc stub: BOOTED_DIGEST, and a staged deployment when STAGED_DIGEST is set.
+cat >"$tmp/bin/bootc" <<'STUB'
+#!/bin/bash
+staged=null
+[[ -z "${STAGED_DIGEST:-}" ]] || staged="{\"image\":{\"image\":{\"image\":\"${STAGED_REF}\"},\"imageDigest\":\"${STAGED_DIGEST}\",\"version\":\"staged\"}}"
+printf '{"status":{"booted":{"image":{"imageDigest":"%s"}},"staged":%s}}\n' "$BOOTED_DIGEST" "$staged"
+STUB
+chmod +x "$tmp/bin/rpm-ostree" "$tmp/bin/skopeo" "$tmp/bin/bootc"
+export BOOTED_DIGEST="sha256:booted"
 export PATH="$tmp/bin:$PATH" SKOPEO_ARG_FILE="$tmp/skopeo-arg" SKOPEO_FIXTURE="$tmp/image.json"
 export BOOTED_REF="ostree-image-signed:docker://ghcr.io/armada-os/armada:stable"
 export ARMADA_UPDATE_LIB="$ROOT/system_files/usr/lib/armada/update-lib"
@@ -56,6 +64,34 @@ check "pending with the registry unreachable: exit 1, empty" "$rc:$out" "1:"
 printf '{"Digest":"sha256:x","Labels":{"io.armada.release-notes":"%s"}}' "$(printf '   \n' | base64 -w0)" >"$tmp/image.json"
 run pending
 check "pending with a blank label: exit 1, empty" "$rc:$out" "1:"
+
+# Target digest == booted digest and nothing staged: the target is the installed image.
+printf '{"Digest":"sha256:booted","Labels":{"io.armada.release-notes":"%s"}}' "$b64" >"$tmp/image.json"
+run pending
+check "pending with target == booted and nothing staged: exit 1, empty" "$rc:$out" "1:"
+
+# Staged deployment that differs from the booted one counts as pending.
+staged_notes=$'## staged1\n\n- Staged change\n'
+printf '{"Digest":"sha256:staged","Labels":{"io.armada.release-notes":"%s"}}' "$(printf '%s' "$staged_notes" | base64 -w0)" >"$tmp/image-staged.json"
+cat >"$tmp/bin/skopeo" <<'STUB'
+#!/bin/bash
+[[ "$1" == inspect ]] || exit 1
+echo "$2" >>"$SKOPEO_ARG_FILE"
+case "$2" in
+    *armada:staged-tag) cat "$SKOPEO_STAGED_FIXTURE" ;;
+    *) cat "$SKOPEO_FIXTURE" ;;
+esac
+STUB
+export SKOPEO_STAGED_FIXTURE="$tmp/image-staged.json"
+STAGED_DIGEST="sha256:staged" STAGED_REF="ghcr.io/armada-os/armada:staged-tag" run pending
+check "pending with target == booted and a different staged image: its notes" "$rc:$out" "0:${staged_notes%$'\n'}"
+STAGED_DIGEST="sha256:booted" STAGED_REF="ghcr.io/armada-os/armada:stable" run pending
+check "pending with staged == booted: exit 1, empty" "$rc:$out" "1:"
+
+# Target differs from booted: its notes even when nothing is staged.
+printf '{"Digest":"sha256:newer","Labels":{"io.armada.release-notes":"%s"}}' "$b64" >"$tmp/image.json"
+run pending
+check "pending with a newer target: its notes" "$rc:$out" "0:${notes%$'\n'}"
 
 run current
 check "current without a file: exit 1, empty" "$rc:$out" "1:"
