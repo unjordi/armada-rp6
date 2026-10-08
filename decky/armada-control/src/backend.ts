@@ -56,6 +56,8 @@ export const setRgbChargeIndicatorBrightness = (brightness: number) =>
 // Presence-file toggle: keeps the previous OS deployment after updates.
 export const getKeepRollback = () => call<[], { enabled: boolean }>("get_keep_rollback");
 export const setKeepRollback = (enabled: boolean) => call<[boolean], { enabled: boolean }>("set_keep_rollback", enabled);
+// Release notes (markdown) of the pending update or the installed version; "" when none.
+export const getReleaseNotes = (which: "pending" | "current") => call<[string], string>("get_release_notes", which);
 export const getControllerState = () => call<[], CalibrationState>("get_controller_state");
 export const saveCalibration = (capture: Capture) => call<[Capture], CalibrationState>("save_calibration", capture);
 export const resetCalibration = () => call<[], CalibrationState>("reset_calibration");
@@ -67,3 +69,4 @@ export const saveFanCurves = (fanCurves: Record<string, FanCurve>, fanSettings: 
   call<[Record<string, FanCurve>, FanSettings], CurvesState>("save_fan_curves", fanCurves, fanSettings);
 export const getCurrentTemp = () => call<[], number | null>("get_current_temp");
 export const setBatteryFanEnabled = (enabled: boolean) => call<[boolean], CurvesState>("set_battery_fan_enabled", enabled);
+export const setBatteryFanProfile = (profile: string) => call<[string], CurvesState>("set_battery_fan_profile", profile);

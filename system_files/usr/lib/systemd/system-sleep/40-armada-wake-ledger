@@ -13,7 +13,7 @@ printf '%s wake_irq=%s (%s) mode=%s\n' \
     "$(date --iso-8601=seconds)" "${irq:-none}" "${name:-unknown}" "${2:-unknown}" >>"$ledger"
 
 # cap the ledger so it can never grow unbounded
-if [ "$(wc -l <"$ledger" 2>/dev/null)" -gt 500 ]; then
-    tail -n 250 "$ledger" >"$ledger.tmp" && mv "$ledger.tmp" "$ledger"
+if [ "$(wc -l <"$ledger" 2>/dev/null)" -gt 20000 ]; then
+    tail -n 10000 "$ledger" >"$ledger.tmp" && mv "$ledger.tmp" "$ledger"
 fi
 exit 0

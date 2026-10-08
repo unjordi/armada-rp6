@@ -8,6 +8,8 @@ from .proc import clean_env
 
 
 OS_VERSION_PATH = Path("/usr/lib/armada/version")
+RELEASE_NOTES_TOOL = "/usr/libexec/armada/armada-release-notes"
+RELEASE_NOTES_SOURCES = ("pending", "current")
 SLEEP_DEBUG_COMMAND = Path("/usr/bin/armada-sleep-debug")
 SLEEP_DEBUG_MODULE = Path("/usr/lib/armada/armada_sleep_debug.py")
 SLEEP_LOG_HOOK_SOURCE = Path(__file__).with_name("sleep_debug_hook.sh")
@@ -286,3 +288,13 @@ def get_keep_rollback():
 
 def set_keep_rollback(enabled):
     return call("set_keep_rollback", enabled=enabled)
+
+
+# Markdown notes of the pending update or the installed version; "" when none.
+def get_release_notes(which):
+    if which not in RELEASE_NOTES_SOURCES:
+        return ""
+    result = run_cmd([RELEASE_NOTES_TOOL, which], timeout=30)
+    if result is None or result.returncode != 0:
+        return ""
+    return result.stdout or ""

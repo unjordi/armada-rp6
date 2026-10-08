@@ -23,6 +23,7 @@ export const en = {
   "options.schedutil": "Schedutil",
   "options.relaxed": "Relaxed",
   "options.moderate": "Moderate",
+  "options.quiet": "Quiet",
   "options.aggressive": "Aggressive",
   "options.fast": "Fast",
   "options.compatible": "Compatible",
@@ -232,6 +233,8 @@ export const en = {
   "fans.batteryFloorToggle": "Floor the fan by battery temperature",
   "fans.batteryFloorDescription": "Keeps the fan running (with a boost while charging) even if CPU/GPU are cool, so a hot battery under fast charging still gets airflow. Off restores the stock behaviour.",
   "fans.batteryFloorError": "Could not change battery fan floor",
+  "fans.batteryProfile": "Battery floor profile",
+  "fans.batteryProfileError": "Could not change battery fan floor profile",
   "rgb.effect": "Effect",
   "rgb.effect.static": "Static",
   "rgb.effect.breathing": "Breathing",
@@ -274,6 +277,11 @@ export const en = {
   "errors.noRunningGame": "no running game to re-apply",
   "errors.bottomScreenBrightnessReadFailed": "could not read bottom-screen brightness",
   "errors.rgbInvalidResponse": "invalid armada-rgb response",
+  "releaseNotes.button": "Release notes",
+  "releaseNotes.title": "What's new in {version}",
+  "releaseNotes.titleNoVersion": "What's new",
+  "releaseNotes.pending": "Available update",
+  "releaseNotes.installed": "Installed version",
 } as const;
 
 export type TranslationKey = keyof typeof en;

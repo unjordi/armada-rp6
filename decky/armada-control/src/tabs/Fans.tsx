@@ -2,14 +2,14 @@ import { toaster } from "@decky/api";
 import { ButtonItem, Field, PanelSection, PanelSectionRow, showModal } from "@decky/ui";
 import { useCallback, useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { getFansState, saveFanCurves, setBatteryFanEnabled } from "../backend";
+import { getFansState, saveFanCurves, setBatteryFanEnabled, setBatteryFanProfile } from "../backend";
 import { CreateCurveModal } from "../components/CreateCurveModal";
 import { FanCurveEditor } from "../components/FanCurveEditor";
 import { FanCurveEditorModal } from "../components/FanCurveEditorModal";
-import { ToggleRow } from "../components/widgets";
+import { SelectEdit, ToggleRow } from "../components/widgets";
 import { useCurrentTemp } from "../hooks/useCurrentTemp";
 import { useFanCurvesSave } from "../hooks/useFanCurvesSave";
-import { t } from "../i18n";
+import { t, translateLabel } from "../i18n";
 import { friendlyError } from "../lib/errors";
 import { clone } from "../lib/util";
 import type { Config, CurvesState } from "../types";
@@ -72,6 +72,22 @@ export function Fans({ setConfig }: {
     }
   };
 
+  const changeBatteryProfile = async (profile: string) => {
+    const previous = draft?.batteryFanProfile ?? "";
+    setDraft((current) => (current ? { ...current, batteryFanProfile: profile } : current));
+    setBatteryFanUpdating(true);
+    try {
+      const next = await setBatteryFanProfile(profile);
+      setSaved(next);
+      setDraft((current) => (current ? { ...current, batteryFanProfile: next.batteryFanProfile } : current));
+    } catch (error) {
+      setDraft((current) => (current ? { ...current, batteryFanProfile: previous } : current));
+      toaster.toast({ title: t("fans.batteryProfileError"), body: friendlyError(error) });
+    } finally {
+      setBatteryFanUpdating(false);
+    }
+  };
+
   if (!draft) {
     return (
       <PanelSection title={t("fans.title")}>
@@ -123,6 +139,17 @@ export function Fans({ setConfig }: {
           value={draft.batteryFanEnabled}
           disabled={batteryFanUpdating}
           onChange={toggleBatteryFan}
+        />
+        <SelectEdit
+          label={t("fans.batteryProfile")}
+          value={draft.batteryFanProfile}
+          options={Object.entries(draft.batteryFanProfiles).map(([name, profile]) => ({
+            data: name,
+            label: translateLabel(profile.label),
+          }))}
+          onChange={changeBatteryProfile}
+          disabled={!draft.batteryFanEnabled || batteryFanUpdating}
+          wrapperClassName="afc-control-inset"
         />
       </PanelSection>
       <PanelSection title={t("fans.saveSection")}>

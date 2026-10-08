@@ -1,0 +1,55 @@
+#!/bin/bash
+# Prints the release notes (markdown) of an OS image.
+#
+#   armada-release-notes current   notes baked into the booted image
+#   armada-release-notes pending   notes of the published image `armada-update check` targets
+#
+# Exit 0 with the notes on stdout; exit 1 with empty stdout when there are none
+# or they cannot be read; exit 2 on a usage error. Diagnostics go to stderr.
+set -uo pipefail
+
+ARMADA_UPDATE_LIB="${ARMADA_UPDATE_LIB:-/usr/lib/armada/update-lib}"
+ARMADA_RELEASE_NOTES_FILE="${ARMADA_RELEASE_NOTES_FILE:-/usr/share/armada/release-notes.md}"
+ARMADA_RELEASE_NOTES_LABEL="io.armada.release-notes"
+
+# shellcheck disable=SC1090
+source "${ARMADA_UPDATE_LIB}" || { echo "armada-release-notes: cannot read ${ARMADA_UPDATE_LIB}" >&2; exit 1; }
+
+# Decodes the image label read from `skopeo inspect` JSON on stdin; prints the notes.
+decode_label() {
+    python3 -c '
+import base64, json, sys
+try:
+    labels = json.load(sys.stdin).get("Labels") or {}
+    text = base64.b64decode(labels.get(sys.argv[1]) or "", validate=True).decode("utf-8")
+except Exception:
+    raise SystemExit(1)
+if not text.strip():
+    raise SystemExit(1)
+sys.stdout.write(text if text.endswith("\n") else text + "\n")
+' "${ARMADA_RELEASE_NOTES_LABEL}"
+}
+
+notes_current() {
+    [[ -s "${ARMADA_RELEASE_NOTES_FILE}" ]] || return 1
+    cat -- "${ARMADA_RELEASE_NOTES_FILE}"
+}
+
+notes_pending() {
+    local target repository desired
+    target="$(armada_update_target "$(armada_booted_ref)")" || return 1
+    read -r repository desired <<<"${target}"
+    [[ -n "${repository}" && -n "${desired}" ]] || return 1
+    skopeo inspect "docker://${repository}:${desired}" 2>/dev/null | decode_label
+}
+
+case "${1:-}" in
+    current) out="$(notes_current)" ;;
+    pending) out="$(notes_pending)" ;;
+    *) echo "usage: armada-release-notes current|pending" >&2; exit 2 ;;
+esac || true
+if [[ -z "${out//[[:space:]]/}" ]]; then
+    echo "armada-release-notes: no ${1} release notes" >&2
+    exit 1
+fi
+printf '%s\n' "${out}"

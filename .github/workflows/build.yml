@@ -101,6 +101,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Install just
         uses: ublue-os/just-action@30ab4659369934b65b655bf8d2fa4ddd6547d384 # v3
@@ -111,6 +112,23 @@ jobs:
           echo "created=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
           echo "version=$(TZ=America/New_York date +%Y%m%d).$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          set -euo pipefail
+          # Previous published revision: label of :latest, read before this build publishes.
+          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" |
+            skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1 || true
+          prev=$(skopeo inspect --override-arch arm64 --config "docker://${IMAGE_REGISTRY}/${IMAGE_NAME}:latest" 2>/dev/null |
+            jq -r '.config.Labels["org.opencontainers.image.revision"] // empty' 2>/dev/null || true)
+          echo "Previous revision: ${prev:-<none, using the last 20 commits>}"
+          notes=system_files/usr/share/armada/release-notes.md
+          bash build_files/release-notes.sh --version "${{ steps.version.outputs.version }}" \
+            --from "${prev}" --to "${{ steps.version.outputs.revision }}" > "${notes}"
+          cat "${notes}"
+          echo "label=io.armada.release-notes=$(base64 -w0 "${notes}")" >> "${GITHUB_OUTPUT}"
 
       - name: Generate image metadata
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -131,6 +149,7 @@ jobs:
             org.opencontainers.image.vendor=${{ github.repository_owner }}
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             containers.bootc=1
+            ${{ steps.notes.outputs.label }}
           sep-tags: " "
           sep-annotations: " "
 

@@ -32,6 +32,7 @@ from armada_control.system import (
     set_sleep_mode,
     set_sleep_logs_enabled,
     get_keep_rollback,
+    get_release_notes,
     set_keep_rollback,
     set_ssh_enabled,
 )
@@ -41,6 +42,7 @@ from armada_control.fan_curves import (
     save_all as save_fan_curves,
     save_charging_pwm,
     set_battery_fan_enabled,
+    set_battery_fan_profile,
 )
 from armada_control.fan_sensors import get_current_temp
 
@@ -147,6 +149,9 @@ class Plugin:
     async def set_keep_rollback(self, enabled):
         return await asyncio.to_thread(set_keep_rollback, enabled)
 
+    async def get_release_notes(self, which):
+        return await asyncio.to_thread(get_release_notes, which)
+
     async def get_controller_state(self):
         return await asyncio.to_thread(controller_state)
 
@@ -175,6 +180,9 @@ class Plugin:
     # of the curve editor's Save flow.
     async def set_battery_fan_enabled(self, enabled):
         return await asyncio.to_thread(set_battery_fan_enabled, enabled)
+
+    async def set_battery_fan_profile(self, profile):
+        return await asyncio.to_thread(set_battery_fan_profile, profile)
 
     # Polled separately from get_fans_state -- see hooks/useCurrentTemp.
     async def get_current_temp(self):

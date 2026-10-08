@@ -9,7 +9,8 @@ from . import power
 
 # Shared with Armada Control: only owns [fan_curve.*] sections, [fan]'s
 # ramp/smoothing/min_pwm/charging_pwm keys, and [battery_fan]'s "enabled"
-# toggle (the battery-temperature floor curve itself stays factory-only).
+# toggle and "profile" selection (the battery floor curves themselves stay
+# factory-only).
 # Forces min_pwm to 0 when any curve's fan-stopped.
 POWER_CONFIG = Path("/etc/armada/power-profiles.conf")
 FACTORY_POWER_CONFIG = Path("/usr/share/armada/power-profiles.conf")
@@ -22,6 +23,10 @@ MIN_CURVE_PWM, MAX_CURVE_PWM = 0, 255
 
 RAMP_KEYS = ("ramp_up", "ramp_down")
 MIN_RAMP, MAX_RAMP = 1, 255
+BATTERY_FAN_DEFAULT_PROFILE = "quiet"
+# Direct keys in [battery_fan] that override the selected profile's section.
+BATTERY_FAN_DIRECT_KEYS = ("curve", "charging_boost")
+
 FACTORY_RAMP_FALLBACK = {"ramp_up": 36, "ramp_down": 6}
 
 # Matches the clamp armada-powerd applies when it reads this key.
@@ -95,6 +100,31 @@ def _parse_battery_fan_enabled(parser):
     return parser.getboolean("battery_fan", "enabled", fallback=True)
 
 
+def _parse_battery_fan_profiles(parser):
+    profiles = {}
+    for section in parser.sections():
+        if not section.startswith("battery_fan_curve."):
+            continue
+        name = section.split(".", 1)[1]
+        curve = parser.get(section, "curve", fallback="")
+        if not curve:
+            continue
+        try:
+            boost = parser.getint(section, "charging_boost", fallback=0)
+        except ValueError:
+            boost = 0
+        profiles[name] = {
+            "label": parser.get(section, "label", fallback="") or default_label(name),
+            "curve": curve,
+            "charging_boost": boost,
+        }
+    return profiles
+
+
+def _parse_battery_fan_profile(parser):
+    return parser.get("battery_fan", "profile", fallback=BATTERY_FAN_DEFAULT_PROFILE).strip()
+
+
 def _parse_curve_points(value):
     points = []
     for item in str(value or "").split(","):
@@ -143,6 +173,8 @@ def get_state():
         "activeProfile": _read_active_profile(merged, profiles),
         "currentTemp": get_current_temp(),
         "batteryFanEnabled": _parse_battery_fan_enabled(merged),
+        "batteryFanProfile": _parse_battery_fan_profile(merged),
+        "batteryFanProfiles": _parse_battery_fan_profiles(merged),
     }
 
 
@@ -312,6 +344,36 @@ def set_battery_fan_enabled(enabled):
     rendered = render_battery_fan_enabled(enabled)
     call("write_config", name="power", text=rendered)
     # action_write_config reloads armada-powerd after every "power" write.
+    return get_state()
+
+
+def render_battery_fan_profile(profile):
+    merged = _read_merged()
+    profiles = _parse_battery_fan_profiles(merged)
+    if not isinstance(profile, str) or profile not in profiles:
+        raise ValueError(f"unknown battery fan profile: {profile!r}")
+    factory_profile = _parse_battery_fan_profile(_read(FACTORY_POWER_CONFIG))
+
+    parser = configparser.ConfigParser()
+    parser.optionxform = str
+    parser.read(POWER_CONFIG)
+
+    set_or_clear(parser, "battery_fan", "profile", profile, profile != factory_profile)
+    # Direct keys would shadow the profile the user just picked.
+    for key in BATTERY_FAN_DIRECT_KEYS:
+        set_or_clear(parser, "battery_fan", key, "", False)
+    if parser.has_section("battery_fan") and not parser.options("battery_fan"):
+        parser.remove_section("battery_fan")
+
+    with tempfile.TemporaryFile("w+", encoding="utf-8") as f:
+        parser.write(f)
+        f.seek(0)
+        return f.read()
+
+
+def set_battery_fan_profile(profile):
+    rendered = render_battery_fan_profile(profile)
+    call("write_config", name="power", text=rendered)
     return get_state()
 
 
