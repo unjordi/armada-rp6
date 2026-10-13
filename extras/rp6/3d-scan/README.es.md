@@ -6,6 +6,8 @@
 **Creative Commons Atribución-CompartirIgual (CC BY-SA)**. Copia sin cambios como archivos de un release de este
 repositorio, para que no pesen en cada clon:
 
+**Descarga:** [release `rp6-3d-scan-klaustro`](https://github.com/unjordi/armada-rp6/releases/tag/rp6-3d-scan-klaustro)
+
 | Archivo | Qué es |
 |---|---|
 | `retroid_pocket_6_Raw.stl` (88 MB) | escaneo crudo del aparato (Revopoint), en milímetros |
