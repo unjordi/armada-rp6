@@ -59,7 +59,7 @@ PNG of a game frame overran it and the kernel killed the whole compositor (see `
 - In the repo, every patch in the series exists and each fork patch is documented:
   `grep -E '0030a|0522a|0533|0910|0911|0912|rp6-suspend' packages/kernel/patches/series packages/kernel/PATCHES.md`.
 - On the device, the kernel parameters exist: `cat /sys/module/pwm_fan/parameters/suspend_pwm` and
-  `ls /sys/class/leds/*/keep_alive` (`keep_alive` is on the HTR3212 controller device; `TODO(verify)` exact path).
+  `cat /sys/bus/i2c/devices/{2,3}-003c/keep_alive` (one attribute per HTR3212 controller, on its I2C device).
 - On the device, deep is advertised: `cat /sys/power/mem_sleep` shows `deep`.
 - A real deep suspend returns: `rtcwake -m mem -s 30` (resumes by RTC), then `journalctl -k -b | grep 'suspend entry (deep)'`.
 
@@ -132,8 +132,8 @@ effect repaints. Full CLI and effect reference: `packages/armada-rgb/README.md`.
 - In the repo: `cd packages/armada-rgb && cargo test` (run as a normal user; one preflight test depends on file permissions).
 - On the device: `armada-rgb supported`, `armada-rgb get`, then
   `armada-rgb set --color FF0000 --brightness 40 --effect breathing --speed 150` and `systemctl status armada-rgb`.
-- On the device, the live-slider fix: drag a UI slider while `watch -n0.05 cat /sys/class/leds/rgb:l1/multi_intensity`
-  (`TODO(verify)` node name; read `multi_index` per node) shows no flash of a different colour.
+- On the device, the live-slider fix: drag a UI slider while `watch -n0.05 'cat /sys/class/leds/l:{r,g,b}1/brightness'`
+  (one single-colour node per channel: `l:` / `r:` stick, `r|g|b`, LED `1..4`) shows no flash of a different colour.
 
 ---
 
@@ -287,7 +287,7 @@ measurements and guards: [`docs/rp6-slim.md`](rp6-slim.md). Code: `build_files/7
 | `ARMADA_DARK_RESUME` | `1` | Enables dark resume (section 2). Kill switch: `dark_resume=0` in `sleep.conf`. |
 | `ARMADA_UI_TOPBAR_INDICATOR_SIZE_PX`, `…_MARGIN_PX` | `16`, `6` | Size and margin of the power-profile glyph in the Steam top bar. |
 | `ARMADA_RGB_SYNC_SCALE` | `0.88` | Scale applied to the stick LEDs when following screen brightness. The UI slider overrides it (`sync_scale` in `rgb.json`). |
-| `ARMADA_PANEL_ORIENTATION`, `ARMADA_HDR_NITS` | `left`, `750` | Panel orientation and HDR peak. `TODO(verify)` whether these two predate the fork. |
+| `ARMADA_PANEL_ORIENTATION`, `ARMADA_HDR_NITS` | `left`, `750` | Panel orientation and HDR peak. Upstream keys (used by other device profiles), set here for the RP6. |
 
 Other changes under `system_files/`: `etc/localtime` (symlink to `America/Mexico_City`), `etc/xdg/spectaclerc` and `etc/xdg/kglobalshortcutsrc` (F13 as the Spectacle
 full-screen shortcut, so Steam Input can map a button to it). Every other device `.conf` gains a commented
