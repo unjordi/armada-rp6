@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   compactNotes,
+  componentMatcher,
   isUpdateFieldSource,
   isUpdateStatusSource,
   overrideProps,
@@ -126,4 +127,26 @@ test("compact notes list entry titles, cap the lines and count the hidden ones",
   assert.equal(compact.hidden, 3);
   assert.deepEqual(compactNotes("## v\n- only"), { version: "v", lines: ["only"], hidden: 0 });
   assert.deepEqual(compactNotes(""), { version: null, lines: [], hidden: 0 });
+});
+
+test("componentMatcher finds a non-exported component by its source and remembers it", () => {
+  const isStatus = (src: string) => src.includes("update_check_results") && src.includes("#Settings_System_Update_Available");
+  function Status() { return ["update_check_results", "#Settings_System_Update_Available"]; }
+  function Other() { return "#Settings_Updates_Title"; }
+  const m = componentMatcher(isStatus);
+  assert.equal(m.found(), null);
+  assert.equal(m.test("div"), false);
+  assert.equal(m.test(Other), false);
+  assert.equal(m.test(Status), true);
+  assert.equal(m.found(), Status);
+  function Twin() { return ["update_check_results", "#Settings_System_Update_Available"]; }
+  assert.equal(m.test(Twin), false);
+});
+
+test("componentMatcher with an initial component only matches that one", () => {
+  function Exported() { return 1; }
+  function Status() { return ["update_check_results", "#Settings_System_Update_Available"]; }
+  const m = componentMatcher((s) => s.includes("update_check_results"), Exported);
+  assert.equal(m.test(Exported), true);
+  assert.equal(m.test(Status), false);
 });

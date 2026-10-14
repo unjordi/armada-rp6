@@ -93,6 +93,30 @@ export function isUpdateStatusSource(source: string): boolean {
     && source.indexOf("#Settings_System_Update_Available") >= 0;
 }
 
+// Returns a predicate that recognizes a component by the source of its function.
+// Each function is inspected once; the first match is remembered and only that
+// function matches afterwards. Non-functions never match.
+export function componentMatcher(matches: (source: string) => boolean, initial: Function | null = null) {
+  let found: Function | null = initial;
+  const seen = new WeakMap<Function, boolean>();
+  const test = (type: unknown): boolean => {
+    if (typeof type !== "function") return false;
+    if (found) return type === found;
+    let hit = seen.get(type);
+    if (hit === undefined) {
+      try {
+        hit = matches(Function.prototype.toString.call(type));
+      } catch {
+        hit = false;
+      }
+      seen.set(type, hit);
+    }
+    if (hit) found = type;
+    return hit;
+  };
+  return { test, found: () => found };
+}
+
 // The notes card replaces Steam's news card only for an update that is not installed yet.
 export function replacesNewsCard(notes: { source: NotesSource } | null | undefined): boolean {
   return !!notes && notes.source === "pending";

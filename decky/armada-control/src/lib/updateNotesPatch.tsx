@@ -30,6 +30,7 @@ import { UpdateNotesCard } from "../components/UpdateNotesCard";
 import {
   isUpdateFieldSource,
   isUpdateStatusSource,
+  componentMatcher,
   overrideProps,
   pickNotes,
   replaceElements,
@@ -121,14 +122,13 @@ const hasEventProp = (props: any) => "event" in props;
 
 export function installUpdateReleaseNotes(): () => void {
   const field = findComponent(isUpdateFieldSource);
-  const status = findComponent(isUpdateStatusSource);
+  const status = componentMatcher(isUpdateStatusSource, findComponent(isUpdateStatusSource));
   const runtime = findJsxRuntime();
   if (!runtime) {
     warnOnce("runtime", "jsx runtime not found; Steam's update screen is left as it is");
     return () => {};
   }
   if (!field) warnOnce("field", "system-update field not found; Steam's patch notes button is left as it is");
-  if (!status) warnOnce("status", "system-update status not found; Steam's news card is left as it is");
 
   function UpdateFieldWithNotes(props: any) {
     useLocale();
@@ -148,7 +148,7 @@ export function installUpdateReleaseNotes(): () => void {
   function UpdateStatusWithNotes(props: any) {
     useLocale();
     const notes = useReleaseNotes();
-    const tree = status!(props);
+    const tree = (status.found() as (p: any) => any)(props);
     if (!notes || !replacesNewsCard(notes)) return tree;
     try {
       return replaceElements(tree, hasEventProp, () => (
@@ -161,7 +161,7 @@ export function installUpdateReleaseNotes(): () => void {
 
   const swap = (args: any[]) => {
     if (field && args[0] === field) args[0] = UpdateFieldWithNotes;
-    else if (status && args[0] === status) args[0] = UpdateStatusWithNotes;
+    else if (args[0] !== UpdateStatusWithNotes && status.test(args[0])) args[0] = UpdateStatusWithNotes;
   };
   const patches = [beforePatch(runtime, "jsx", swap), beforePatch(runtime, "jsxs", swap)];
   return () => {
