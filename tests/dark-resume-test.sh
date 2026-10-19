@@ -79,6 +79,7 @@ run() {
         ARMADA_SYSTEMD_SLEEP="$tmp/systemd-sleep" ARMADA_DARK_RESUME_LIB="${LIB_OVERRIDE:-$LIB}" \
         ARMADA_SYSFS_ROOT="$sysfs" ARMADA_PROC_INTERRUPTS="$interrupts" ARMADA_DARK_RESUME_LOG="$ledger" \
         ARMADA_SYSTEMCTL="$tmp/systemctl" ARMADA_DARK_RESUME_HOOK56="$tmp/hook56" \
+        ARMADA_CHARGER_MODE_FLAG="${CHARGER_FLAG:-$tmp/charger-mode-absent}" \
         ARMADA_DARK_RESUME_PWRKEY0="$pk_file" ARMADA_DARK_RESUME_BRIGHTNESS="$tmp/blsave" ARMADA_DARK_RESUME_SETTLE_TICKS=2 ARMADA_DARK_RESUME_ONLINE_TICKS="${ONLINE_TICKS:-6}" \
         COUNTER="$counter" SLEEP_LOG="$sleep_log" SYSFS="$sysfs" SCRIPT="$script" INTERRUPTS="$interrupts" \
         SC_LOG="$sc_log" HOOK_LOG="$hook_log" \
@@ -183,6 +184,15 @@ FAKE_FREEZE_FAIL=1 run usb=1 pwrkey-irq
 check "freeze fails: exactly one plain sleep call (no loop)" "$(calls)" 1
 check "freeze fails: no thaw attempted" "$(nlines '^thaw' "$sc_log")" 0
 lacks "freeze fails: sleep not run with the frozen-slice env" "freeze_env=0" "$sleep_log"
+
+# 6b) charger mode (booted by cable while off): armada-charger runs the loop,
+# so the dispatcher does one plain sleep and leaves user.slice alone.
+: >"$tmp/charger-mode"
+CHARGER_FLAG="$tmp/charger-mode" run usb=1 pwrkey-irq
+check "charger mode: exactly one plain sleep call" "$(calls)" 1
+check "charger mode: no freeze" "$(nlines '^freeze' "$sc_log")" 0
+lacks "charger mode: sleep not run with the frozen-slice env" "freeze_env=0" "$sleep_log"
+rm -f "$tmp/charger-mode"
 
 # 7) always thaws, even when systemd-sleep fails (and returns its code).
 run fail

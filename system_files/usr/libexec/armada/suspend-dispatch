@@ -38,7 +38,9 @@ if [[ -n "$sleep_bin" ]]; then
     # Dark resume (deep only, per-device opt-in): keep user sessions frozen and
     # sleep again while the only wake reason was the charger. Any failure to
     # set it up falls through to today's plain suspend. See dark-resume-lib.
-    if [[ "$mode" == deep && "${ARMADA_DARK_RESUME:-0}" == 1 ]]; then
+    # In charger mode (booted by cable while off) armada-charger owns the loop.
+    if [[ "$mode" == deep && "${ARMADA_DARK_RESUME:-0}" == 1 &&
+          ! -e "${ARMADA_CHARGER_MODE_FLAG:-/run/armada/charger-mode}" ]]; then
         if source "${ARMADA_DARK_RESUME_LIB:-/usr/lib/armada/dark-resume-lib}" 2>/dev/null; then
             dark_resume_loop "$sleep_bin" "$@"
             exit $?
