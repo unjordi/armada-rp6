@@ -1,0 +1,57 @@
+#!/bin/bash
+# Charger mode (powered on by a cable while off): sleep in deep while a charger
+# is online, with the panel dark. The power button reboots into the normal
+# boot; no external supply online powers off. Runs as armada-charger.service.
+set -uo pipefail
+
+flag=${ARMADA_CHARGER_MODE_FLAG:-/run/armada/charger-mode}
+sc=${ARMADA_SYSTEMCTL:-systemctl}
+lib=${ARMADA_DARK_RESUME_LIB:-/usr/lib/armada/dark-resume-lib}
+supply_wait=${ARMADA_CHARGER_SUPPLY_WAIT:-60}   # s for battmgr to register its supplies
+retry_secs=${ARMADA_CHARGER_RETRY_SECS:-5}
+
+# shellcheck source=/dev/null
+source "$lib" || { echo "armada-charger: cannot source $lib" >&2; exit 1; }
+
+log() { printf '%s charger-mode %s\n' "$(date --iso-8601=seconds)" "$*" >>"$dr_log" 2>/dev/null; }
+
+mkdir -p "$(dirname "$flag")" "$(dirname "$dr_pwrkey0")" 2>/dev/null
+: >"$flag"
+
+# battmgr registers its supplies once the ADSP service is up, after sysinit:
+# re-detect them until they appear (the lib detects at source time).
+t=0
+while [[ -z "$dr_supplies" ]] && (( t++ < supply_wait )); do
+    sleep 1
+    source "$lib"
+done
+
+pk=$(irq_count pmic_pwrkey)
+log "start online=$(charger_online) supplies=${dr_supplies:-none}"
+while :; do
+    on0=$(charger_online)
+    # Only a definite "no supply online" powers off; unknown keeps charging.
+    if [[ "$on0" != '?' && "$on0" != *1* && "$on0" != *-* ]]; then
+        log "reason=unplug online=$on0"
+        exec "$sc" poweroff
+    fi
+    printf '%s\n' "$pk" >"$dr_pwrkey0" 2>/dev/null
+    "$sc" start suspend.target; rc=$?
+    pk1=$(irq_count pmic_pwrkey); on1=$(charger_online)
+    if (( pk1 == pk )) && [[ "$on0" != '?' && "$on1" == "$on0" ]]; then
+        on1=$(wait_online_change "$on0" "$pk1"); pk1=$(irq_count pmic_pwrkey)
+    fi
+    if (( pk1 > pk )); then
+        log "reason=user online=$on0->$on1"
+        exec "$sc" reboot
+    fi
+    pk=$pk1
+    if (( rc != 0 )); then
+        log "reason=failed rc=$rc online=$on0->$on1"
+        sleep "$retry_secs"
+    elif [[ "$on1" != "$on0" ]]; then
+        log "reason=charger online=$on0->$on1"
+    else
+        log "reason=other online=$on0->$on1"
+    fi
+done
