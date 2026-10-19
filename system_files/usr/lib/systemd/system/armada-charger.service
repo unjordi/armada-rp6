@@ -1,0 +1,16 @@
+[Unit]
+Description=Armada charger mode: sleep while charging, wake only on the power button
+DefaultDependencies=no
+Requires=sysinit.target
+After=sysinit.target
+Conflicts=shutdown.target
+Before=shutdown.target
+ConditionKernelCommandLine=systemd.unit=armada-charger.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/armada/armada-charger
+# A crash of the loop must neither power the device on nor stop charging.
+Restart=always
+RestartSec=5

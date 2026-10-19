@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Covers the /KERNEL regeneration path: the shared BLS-to-cmdline transform,
 # the known-good KERNEL.BAK snapshot, the target-deployment DTB list lookup,
-# and the initramfs ostree fallback that rescues a stale /KERNEL.
+# the initramfs ostree fallback that rescues a stale /KERNEL, and the
+# charger-mode image in boot_a/boot_b (armada-chargerimg-update).
 
 set -euo pipefail
 
@@ -343,5 +344,68 @@ for bin in mkdir mount umount rm; do
         *) fail "module-setup: does not install ${bin}, which the fallback runs" ;;
     esac
 done
+
+# --- charger mode: cmdline transform -----------------------------------------
+
+ccl="$(armada_charger_cmdline "ostree=/o/b/c/0 rw console=tty0 quiet systemd.unit=other.target")"
+assert_eq "charger cmdline" "$ccl" "ostree=/o/b/c/0 rw quiet systemd.unit=armada-charger.target"
+
+# --- armada-chargerimg-update: boot_a/boot_b + init_boot headers --------------
+
+CHG="$ROOT/system_files/usr/libexec/armada/armada-chargerimg-update"
+PARTS="$WORK/parts"; mkdir -p "$PARTS"
+CSIZE=$((4 * 1024 * 1024))
+sed -e 's|findmnt -rn "${ESP}"|true "${ESP}"|' "$CHG" > "$WORK/chg.sh"
+printf '#!/bin/bash\necho ARMADA_CHARGER_MODE=${FAKE_CHARGER:-1}\n' > "$WORK/device-env"
+chmod +x "$WORK/device-env"
+fresh_parts() {
+    local p
+    for p in boot_a boot_b; do head -c "$CSIZE" /dev/zero > "$PARTS/$p"; done
+    { printf 'ANDROID!'; head -c 8184 /dev/zero; } > "$PARTS/init_boot_a"
+    { printf 'NOTANDRD'; head -c 8184 /dev/zero; } > "$PARTS/init_boot_b"
+    rm -f "$ESP/.armada-chargerimg.id"
+}
+run_chg() {
+    ESP="$ESP" BOOTROOT="$BOOT" SYSROOT="$SYS" \
+        ARGS_FILE="$ARMADA_LIB/bootimg-args" DTB_LIST="$ARMADA_LIB/supported-dtbs" \
+        MKBOOTIMG="$ROOT/build_files/vendor/mkbootimg/mkbootimg.py" \
+        AVBTOOL="$ROOT/build_files/vendor/avb/avbtool.py" \
+        ARMADA_DEVICE_ENV="$WORK/device-env" ARMADA_CHARGER_PART_DIR="$PARTS" \
+        ARMADA_CHARGER_BOOT_SIZE="$CSIZE" ARMADA_CHARGERIMG_LOCK="$WORK/chg.lock" \
+        bash "$WORK/chg.sh" 2>&1 || true
+}
+AVB="$ROOT/build_files/vendor/avb/avbtool.py"
+
+fresh_parts
+out="$(run_chg)"
+assert_contains "charger image" "$out" "wrote boot_a/boot_b"
+cmp -s "$PARTS/boot_a" "$PARTS/boot_b" || fail "charger image: slots differ"
+[[ "$(head -c 8 "$PARTS/boot_a")" == "ANDROID!" ]] || fail "charger image: boot_a is not a boot image"
+hdr_cmdline=$(dd if="$PARTS/boot_a" bs=1 skip=64 count=512 status=none | tr -d '\0')
+[[ "$hdr_cmdline" == "ostree=/ostree/boot.1/default/$CSUM/0 "* ]] || fail "charger image: ostree= not first: $hdr_cmdline"
+assert_contains "charger image cmdline" "$hdr_cmdline" "systemd.unit=armada-charger.target"
+info=$(python3 "$AVB" info_image --image "$PARTS/boot_a")
+assert_contains "charger footer" "$info" "Algorithm:                NONE"
+assert_contains "charger footer" "$info" "Partition Name:        boot"
+assert_contains "charger footer" "$info" "com.android.build.boot.os_version"
+[[ "$(head -c 8 "$PARTS/init_boot_a" | tr -d '\0')" == "" ]] || fail "charger image: init_boot_a header not cleared"
+[[ "$(head -c 8 "$PARTS/init_boot_b")" == "NOTANDRD" ]] || fail "charger image: touched a non-Android init_boot"
+[[ -s "$ESP/.armada-chargerimg.id" ]] || fail "charger image: no stamp"
+
+# Second run: same inputs, nothing rewritten.
+before=$(sha256sum "$PARTS/boot_a" | cut -d' ' -f1)
+assert_contains "charger idempotence" "$(run_chg)" "already current"
+assert_eq "charger idempotence" "$(sha256sum "$PARTS/boot_a" | cut -d' ' -f1)" "$before"
+
+# A partition of the wrong size is never written.
+fresh_parts; head -c $((CSIZE / 2)) /dev/zero > "$PARTS/boot_b"
+assert_contains "charger size guard" "$(run_chg)" "refusing to write"
+[[ "$(head -c 8 "$PARTS/boot_a" | tr -d '\0')" == "" ]] || fail "charger size guard: wrote boot_a anyway"
+
+# Devices without ARMADA_CHARGER_MODE=1 are left alone.
+fresh_parts
+out="$(FAKE_CHARGER=0 run_chg)"
+[[ "$(head -c 8 "$PARTS/boot_a" | tr -d '\0')" == "" ]] || fail "charger gate: wrote on a device without charger mode"
+[[ "$(head -c 8 "$PARTS/init_boot_a")" == "ANDROID!" ]] || fail "charger gate: cleared init_boot without charger mode"
 
 printf 'boot image regeneration test passed\n'

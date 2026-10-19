@@ -1,0 +1,4 @@
+# Charger mode (powered on by a cable while off): every panel backlight at 0
+# as soon as it registers. Also installed in the initramfs (91armada-charger).
+IMPORT{cmdline}="systemd.unit"
+ACTION=="add", SUBSYSTEM=="backlight", ENV{systemd.unit}=="armada-charger.target", ATTR{brightness}="0"

@@ -19,8 +19,12 @@ wl() { printf '%s\n' \
 printf 'mem\n' >"$tmp/sys/power/mem_sleep"; printf 'success: 1\n' >"$tmp/sys/power/suspend_stats" 2>/dev/null || true
 export ARMADA_SYSFS_ROOT="$tmp/sys" ARMADA_PROC_INTERRUPTS="$int" ARMADA_WAKE_PROBE_DIR="$tmp/probe" \
        ARMADA_WAKE_PROBE_RUN="$tmp/run" ARMADA_WAKEUP_SOURCES="$tmp/none"
+printf '0\n' >"$tmp/sys/power/pm_debug_messages"; printf '0\n' >"$tmp/sys/power/pm_print_times"
 wl 1000 0 0 500;  "$HOOK" pre suspend  || { echo "FAIL: pre devolvió error"; exit 1; }
+[[ "$(cat "$tmp/sys/power/pm_debug_messages")" == 1 ]] || { echo "FAIL: pre no prendió pm_debug_messages"; exit 1; }
+[[ "$(cat "$tmp/sys/power/pm_print_times")" == 0 ]] || { echo "FAIL: pre prendió pm_print_times (llena el journal)"; exit 1; }
 wl 9000 0 1 540;  "$HOOK" post suspend || { echo "FAIL: post devolvió error"; exit 1; }
+[[ "$(cat "$tmp/sys/power/pm_debug_messages")" == 0 ]] || { echo "FAIL: post no regresó pm_debug_messages a su valor"; exit 1; }
 log="$(ls -t "$tmp/probe"/*.log | head -1)"; [[ -s "$log" ]] || { echo "FAIL: no escribió log"; exit 1; }
 delta="$(sed -n '/--- interrupt delta/,/^$/p' "$log")"
 first="$(grep -m1 '^  +' <<<"$delta")"

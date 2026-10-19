@@ -29,6 +29,12 @@ sha256sum -c <<'EOF'
 37d84b3d162e0bc62e36c1f4e1c63c85ea0caa9f29be023eb2f8efe006ad948c  /usr/libexec/armada/mkbootimg.py
 1bb1feec68a13da18d581aa2c631798f86f6bc10b55d587b2dd31446a0f8a203  /usr/libexec/armada/gki/generate_gki_certificate.py
 EOF
+# avbtool (AOSP external/avb, tag android-15.0.0_r1, MIT): AVB footer of the
+# charger-mode boot image (armada-chargerimg-update).
+install -Dpm 0755 /ctx/build_files/vendor/avb/avbtool.py /usr/libexec/armada/avbtool.py
+sha256sum -c <<'EOF'
+78a50c8620985709f2e131cf948dcd66ecc43f09ed735e09d75751a7e21e4eb8  /usr/libexec/armada/avbtool.py
+EOF
 
 source /ctx/abl/release.env
 abl_releases=/ctx/abl/releases.tsv

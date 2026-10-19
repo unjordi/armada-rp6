@@ -3,50 +3,31 @@
 # Opt-in, default OFF (Armada Control -> RGB Lighting -> "Show charge status
 # while sleeping").
 #
-# WHAT IT ACTUALLY COVERS (read before trusting the LEDs mid-sleep):
-#   * "I put it to sleep while it was ALREADY charging" -> YES. `pre` SEEDS the
-#     current charge color (amber charging / green full) onto the LEDs and the
-#     HTR3212 controllers hold that pattern in hardware through the sleep
-#     (keep_alive, no CPU). This is the case Jordi asked for ("I leave it
-#     charging overnight").
-#   * "It gets plugged in or unplugged WHILE ASLEEP":
-#       - in DEEP suspend with dark resume (ARMADA_DARK_RESUME=1): REFLECTED. The
-#         attach/detach wakes the SoC, dark-resume-lib (suspend-dispatch) sleeps
-#         again with the screen off and this hook's `pre` re-seeds the new state.
-#       - in DEEP suspend without it: NOT reflected until the next wake (the AP is
-#         down and 45-armada-wake-policy disarms the charger wakeup on purpose).
-#       - in s2idle: the armed trigger should repaint on power_supply_changed()
-#         (not measured on the RP6).
-#   * "charging -> full WHILE ASLEEP" in deep: there is no plug event for dark
-#     resume to act on; green shows only after something else wakes the device.
+# Coverage:
+#   * Put to sleep while charging: `pre` seeds amber (charging) / green (full)
+#     and the HTR3212 controllers hold that pattern in hardware through deep
+#     sleep (keep_alive, no CPU).
+#   * Plugged in, unplugged or filled up while asleep in deep with dark resume
+#     (ARMADA_DARK_RESUME=1): the battery firmware's notification wakes the SoC,
+#     dark-resume-lib sleeps again with the screen off and this hook's `pre`
+#     seeds the new state. In charger mode armada-charger does the same rounds.
+#   * Deep without dark resume: not reflected until the next wake.
 #
-# Mechanism (suspend `pre`, when opted in):
-#   1. STOP the armada-rgb daemon. Its paint loop reclaims these LEDs from any
-#      kernel trigger on every render tick (backend.rs reclaim_led) -- so if we
-#      only armed the trigger and left the daemon running, its next tick before
-#      userspace freezes would DISARM our hand-off and the charge status would
-#      never survive into sleep (armada QG-8). We take the daemon out of the way
-#      first, then own the LEDs ourselves. The resume hook starts it back up.
-#   2. keep_alive=1 on the HTR3212 controllers so they are NOT powered down in
-#      suspend (kernel patch armada#26) and keep driving their PWM pattern with
-#      no CPU -- their vdd rail is regulator-always-on.
-#   3. Arm the kernel trigger "<psy>-charging-orange-full-green" on the group
-#      LEDs. It repaints on each power_supply_changed() while the AP is up; in
-#      deep a dark-resume round re-seeds instead (see "WHAT IT ACTUALLY COVERS").
-#   4. SEED the CURRENT charge state onto the LEDs right now (amber charging /
-#      green full). Arming a power-supply LED trigger does NOT paint an initial
-#      frame -- it only repaints on the next power_supply_changed() EDGE. If the
-#      charger was already attached before sleep there is no such edge, so
-#      without this seed the LEDs would sleep showing the user's last color,
-#      not the charge status (armada QG-8 causa a). In deep suspend this seed is
-#      the ONLY state shown until the next wake.
+# `pre`, when opted in:
+#   1. Stop the armada-rgb daemon: its paint loop reclaims these LEDs from any
+#      kernel trigger on every render tick, which would disarm the hand-off.
+#   2. keep_alive=1 on the HTR3212 controllers: not powered down in suspend,
+#      they keep driving their PWM pattern and their vdd_mcu_3v3 enable.
+#   3. Arm the "<psy>-charging-orange-full-green" trigger on the group LEDs
+#      (repaints on power_supply_changed() while the AP is up).
+#   4. Seed the current state: arming a power-supply trigger paints nothing
+#      until the next power_supply_changed() edge.
 #
-# On resume (`post`): disarm the trigger, clear keep_alive, and bring the daemon
-# back so it repaints the user's own lighting.
+# `post`: on a user wake (power button) disarm the trigger, clear keep_alive
+# and bring the daemon back; on any other wake keep the indicator up.
 #
-# This never blocks or delays suspend: every step is best-effort and a no-op on
-# a device without these LED nodes / the htr3212 driver (older image, desktop
-# dev box) -- lighting is cosmetic, never a reason to abort sleep.
+# Never blocks or delays suspend: every step is best-effort and a no-op without
+# these LED nodes or the htr3212 driver.
 set -uo pipefail
 
 sysfs_root=${ARMADA_SYSFS_ROOT:-/sys}
@@ -122,13 +103,11 @@ is_charging() {
     [[ "$status" == Charging || "$status" == Full ]]
 }
 
-# True (0) if THIS resume was a user wake (power button). Read straight from
-# pm_wakeup_irq (like 40-armada-wake-ledger) so we do not depend on hook
-# ordering. A self-wake mid-charge (armada QG-8-b) reports no attributable IRQ
-# ("none"); the power button is pmic_pwrkey. Anything that is NOT the power key
-# -- self-wake, rtc, unknown -- counts as NON-user so the indicator is kept up.
-# The pmic_pwrkey counter delta (see below) catches a button press reported as
-# "none".
+# True (0) if THIS resume was a user wake (power button), read straight from
+# pm_wakeup_irq (like 40-armada-wake-ledger) so hook order does not matter.
+# Anything that is NOT the power key (firmware notification, rtc, unknown)
+# counts as non-user so the indicator is kept up. The pmic_pwrkey counter delta
+# (see below) catches a button press reported as "none".
 was_user_wake() {
     local irq name pk0 pk1
     irq=$(cat "$sysfs_root/power/pm_wakeup_irq" 2>/dev/null)
@@ -136,8 +115,8 @@ was_user_wake() {
     case "$name" in
         *pwrkey*) return 0 ;;
     esac
-    # A power-button wake can also be reported as "none" (measured 2026-10-03).
-    # dark-resume-lib records the pmic_pwrkey counter before each round; a delta
+    # A power-button wake can also be reported as "none". dark-resume-lib (and
+    # armada-charger) record the pmic_pwrkey counter before each round; a delta
     # means the button was pressed.
     if [[ -r "$pwrkey0_file" ]]; then
         pk0=$(<"$pwrkey0_file")
@@ -158,12 +137,10 @@ stop_daemon() {
     fi
 }
 
-# Bring the daemon back after resume. IDEMPOTENT and INDEPENDENT of the marker:
-# even if `pre` stopped the daemon but the marker write FAILED (tmpfs full,
-# race, mkdir failed), the daemon must still come back -- otherwise every
-# animated effect, screen_sync included, stays dead until the next reboot
-# (audit M2). The marker is only cleaned up here; whether we start vs nudge is
-# decided by whether the service is actually running, not by the marker.
+# Bring the daemon back after resume. Idempotent and independent of the marker:
+# if `pre` stopped the daemon but could not write the marker, the daemon must
+# still come back, or every animated effect stays dead until reboot. Start vs
+# nudge is decided by whether the service is running, not by the marker.
 start_daemon() {
     rm -f "$daemon_marker" 2>/dev/null || true
     command -v systemctl >/dev/null 2>&1 || return 0
@@ -181,10 +158,9 @@ start_daemon() {
 # trigger would paint on an event, so the "already charging" case shows amber
 # immediately instead of the user's last color. Amber (charging) uses the same
 # hue as armada-rgb's Battery effect (hsv 0.11,1,1 ~ 255,168,0); green = full.
-# On battery it BLANKS the LEDs: `pre` keeps the controllers alive (keep_alive)
-# so a plug-in mid-sleep can repaint them, and leaving the user's last frame lit
-# would glow all night on battery (measured 2026-10: ~2.3 %/h asleep vs ~0.5 %/h
-# before keep_alive). The armed trigger repaints on the plug-in edge.
+# On battery it blanks the LEDs: `pre` keeps the controllers alive (keep_alive)
+# so a plug-in mid-sleep can repaint them, and the user's last frame would stay
+# lit all night on battery.
 seed_current_charge() {
     local status cap r g b led order ch vals max level pct
     pct=$(indicator_brightness_pct)
@@ -237,12 +213,10 @@ case "${1:-}" in
         ;;
     post)
         # If the indicator is on and this was NOT a user wake (power button), the
-        # device woke on its own -- a mid-charge self-wake (armada QG-8-b), an
-        # rtc/background wake, or a dark-resume round (suspend-dispatch sleeps
-        # again right after) -- with the screen still off. Handing the ring back
-        # to the daemon here is what made the overnight charge indicator
-        # disappear (the daemon repaints the user's effect, e.g. screen_sync ->
-        # dark screen -> LEDs go dark). So keep the indicator up: re-seed the
+        # device woke on its own (firmware notification, rtc, a dark-resume or
+        # charger-mode round that sleeps again right after) with the screen off.
+        # Handing the LEDs back to the daemon would repaint the user's effect
+        # (screen_sync: dark screen, dark LEDs). So keep the indicator up: re-seed the
         # CURRENT state (amber/green, or blank on battery -- also when the
         # charger was just unplugged, so no flash of the user's colour) and leave
         # the trigger armed + daemon stopped (the marker persists). The full

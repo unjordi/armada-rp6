@@ -48,3 +48,79 @@ armada_default_bls_entry() {
         printf '%s\t%s\n' "${v:-0}" "$f"
     done | sort -rn | head -1 | cut -f2
 }
+
+# Next-boot inputs shared by armada-bootimg-update and armada-chargerimg-update.
+# Uses BOOTROOT, SYSROOT, DTB_LIST; sets entry linux initrd options kpath ipath
+# dpath content_files and may repoint DTB_LIST. Arg: program name for messages.
+armada_bootimg_resolve() {
+    local prog=$1 t name fdtdir ostree_karg deploy_root
+    # Next-boot deployment = highest-version BLS entry (ostree gives its default,
+    # and the rollback target, the highest version), via the shared helper.
+    entry=$(armada_default_bls_entry "${BOOTROOT}")
+    [ -n "${entry:-}" ] || { echo "${prog}: no BLS entry in ${BOOTROOT}/loader/entries" >&2; return 1; }
+
+    linux=$(sed -n 's/^linux //p'   "${entry}" | head -1)
+    initrd=$(sed -n 's/^initrd //p' "${entry}" | head -1)
+    fdtdir=$(sed -n 's/^fdtdir //p' "${entry}" | head -1)
+    options=$(sed -n 's/^options //p' "${entry}" | head -1)
+
+    # The deployment being baked owns its DTB set: the running list can name a .dtb
+    # that build dropped. An unresolvable karg names no deployment at all, so baking
+    # it would stamp an unbootable /KERNEL and suppress the rollback that recovers.
+    ostree_karg=""
+    for t in ${options}; do
+        case "${t}" in ostree=*) ostree_karg="${t#ostree=}" ;; esac
+    done
+    [ -n "${ostree_karg}" ] || {
+        echo "${prog}: no ostree= karg in ${entry}" >&2
+        return 1
+    }
+    deploy_root=$(realpath -e "${SYSROOT%/}${ostree_karg}" 2>/dev/null) || {
+        echo "${prog}: ${ostree_karg} does not resolve under ${SYSROOT}" >&2
+        return 1
+    }
+    if [ -r "${deploy_root}/usr/lib/armada/supported-dtbs" ]; then
+        DTB_LIST="${deploy_root}/usr/lib/armada/supported-dtbs"
+    fi
+
+    # BLS paths carry a /boot prefix (bootprefix=true); the files live on this fs.
+    kpath="${BOOTROOT}${linux#/boot}"
+    ipath="${BOOTROOT}${initrd#/boot}"
+    dpath="${BOOTROOT}${fdtdir#/boot}"
+
+    content_files=("${kpath}" "${ipath}")
+    while read -r name; do
+        [ -n "${name}" ] || continue
+        content_files+=("${dpath}/qcom/${name}.dtb")
+    done < "${DTB_LIST}"
+}
+
+# ROCKNIX ABL expects gzip(Image) with all supported DTBs appended; its model
+# picker chooses among them at boot. Args: program name, output file; needs
+# armada_bootimg_resolve first.
+armada_bootimg_kernel_gz() {
+    local prog=$1 out=$2 name dtb
+    gzip -c "${kpath}" > "${out}" || return 1
+    while read -r name; do
+        [ -n "${name}" ] || continue
+        dtb="${dpath}/qcom/${name}.dtb"
+        [ -f "${dtb}" ] || { echo "${prog}: missing DTB ${dtb}" >&2; return 1; }
+        cat "${dtb}" >> "${out}"
+    done < "${DTB_LIST}"
+}
+
+# /KERNEL cmdline to the charger-mode one: the ABL boots boot_a/boot_b when the
+# device is powered on by a cable while off. No text console on the panel, and
+# systemd starts armada-charger.target instead of the session.
+armada_charger_cmdline() {
+    local t out=""
+    local -
+    set -f
+    for t in $1; do
+        case "${t}" in
+            console=tty0|systemd.unit=*) continue ;;
+            *) out="${out:+${out} }${t}" ;;
+        esac
+    done
+    printf '%s systemd.unit=armada-charger.target' "${out}"
+}

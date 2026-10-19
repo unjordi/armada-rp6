@@ -18,6 +18,7 @@ dracut \
     --add ostree \
     --add armada-splash \
     --add armada-ostree-fallback \
+    --add armada-charger \
     "${IMG}" "${KVER}"
 
 # dracut drops modules silently: fail the build rather than ship without.
@@ -31,7 +32,10 @@ required=(
     usr/share/armada/splash/splash.asp \
     usr/libexec/armada/armada-ostree-fallback \
     usr/lib/systemd/system/ostree-prepare-root.service.d/armada-fallback.conf \
-    usr/lib/ostree/ostree-prepare-root
+    usr/lib/ostree/ostree-prepare-root \
+    usr/lib/systemd/system/initrd-switch-root.service.d/armada-init.conf \
+    usr/lib/systemd/system/armada-splash-initrd.service.d/armada-charger.conf \
+    usr/lib/udev/rules.d/61-armada-charger-backlight.rules
 )
 
 if ! lsinitrd "${IMG}" | awk '

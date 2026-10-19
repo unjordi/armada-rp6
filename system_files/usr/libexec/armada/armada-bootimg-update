@@ -77,45 +77,8 @@ if [ "${snapshot}" = 1 ]; then
     snapshot_prev
 fi
 
-# Next-boot deployment = highest-version BLS entry (ostree gives its default,
-# and the rollback target, the highest version), via the shared helper.
-entry=$(armada_default_bls_entry "${BOOTROOT}")
-[ -n "${entry:-}" ] || { echo "armada-bootimg-update: no BLS entry in ${BOOTROOT}/loader/entries" >&2; exit 1; }
+armada_bootimg_resolve armada-bootimg-update || exit 1
 
-linux=$(sed -n 's/^linux //p'   "${entry}" | head -1)
-initrd=$(sed -n 's/^initrd //p' "${entry}" | head -1)
-fdtdir=$(sed -n 's/^fdtdir //p' "${entry}" | head -1)
-options=$(sed -n 's/^options //p' "${entry}" | head -1)
-
-# The deployment being baked owns its DTB set: the running list can name a .dtb
-# that build dropped. An unresolvable karg names no deployment at all, so baking
-# it would stamp an unbootable /KERNEL and suppress the rollback that recovers.
-ostree_karg=""
-for t in ${options}; do
-    case "${t}" in ostree=*) ostree_karg="${t#ostree=}" ;; esac
-done
-[ -n "${ostree_karg}" ] || {
-    echo "armada-bootimg-update: no ostree= karg in ${entry}" >&2
-    exit 1
-}
-deploy_root=$(realpath -e "${SYSROOT%/}${ostree_karg}" 2>/dev/null) || {
-    echo "armada-bootimg-update: ${ostree_karg} does not resolve under ${SYSROOT}" >&2
-    exit 1
-}
-if [ -r "${deploy_root}/usr/lib/armada/supported-dtbs" ]; then
-    DTB_LIST="${deploy_root}/usr/lib/armada/supported-dtbs"
-fi
-
-# BLS paths carry a /boot prefix (bootprefix=true); the files live on this fs.
-kpath="${BOOTROOT}${linux#/boot}"
-ipath="${BOOTROOT}${initrd#/boot}"
-dpath="${BOOTROOT}${fdtdir#/boot}"
-
-content_files=("${kpath}" "${ipath}")
-while read -r name; do
-    [ -n "${name}" ] || continue
-    content_files+=("${dpath}/qcom/${name}.dtb")
-done < "${DTB_LIST}"
 id=$(armada_bootimg_id "${linux}" "${initrd}" "${options}" "${DTB_LIST}" "${ARGS_FILE}" \
     "$(armada_bootimg_content_id "${content_files[@]}")")
 if [ -f "${KERNEL_OUT}" ] && [ "$(cat "${STAMP}" 2>/dev/null || true)" = "${id}" ]; then
@@ -138,15 +101,7 @@ fi
 work=$(mktemp -d)
 trap 'rm -rf "${work}"' EXIT
 
-# ROCKNIX ABL expects gzip(Image) with all supported DTBs appended; its model
-# picker chooses among them at boot.
-gzip -c "${kpath}" > "${work}/kernel.gz"
-while read -r name; do
-    [ -n "${name}" ] || continue
-    dtb="${dpath}/qcom/${name}.dtb"
-    [ -f "${dtb}" ] || { echo "armada-bootimg-update: missing DTB ${dtb}" >&2; exit 1; }
-    cat "${dtb}" >> "${work}/kernel.gz"
-done < "${DTB_LIST}"
+armada_bootimg_kernel_gz armada-bootimg-update "${work}/kernel.gz" || exit 1
 
 python3 "${MKBOOTIMG}" \
     --kernel "${work}/kernel.gz" --ramdisk "${ipath}" \

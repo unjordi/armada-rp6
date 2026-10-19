@@ -2,9 +2,9 @@ From: Armada <noreply@armada.local>
 Subject: [PATCH] arm64: dts: qcom: rp6: keep the charge indicator and fan alive across suspend
 
 The HTR3212 stick LED controllers are marked always-on so the LED core does
-not blank their PWM pattern on suspend entry; their supply (vdd_mcu_3v3) is
-already always-on, so the charge indicator set by userspace survives deep
-suspend. vdd_fan_5v0 drops regulator-off-in-suspend so the fan can keep
+not blank their PWM pattern on suspend entry; with keep_alive set they keep
+their vdd_mcu_3v3 enable (htr3212 0030a), so the charge indicator set by
+userspace survives deep suspend. vdd_fan_5v0 drops regulator-off-in-suspend so the fan can keep
 spinning while charging in suspend-to-RAM; pwm-fan still releases the supply
 when its suspend speed is 0, so the rail powers off on battery.
 ---
@@ -20,8 +20,8 @@ when its suspend speed is 0, so the rail powers off on battery.
 +		 * absent, and that core-blank zeroes brightness on suspend
 +		 * entry -- which defeats the keep_alive charge indicator (the
 +		 * chip stays powered but the pattern is wiped: "green ~0.5s
-+		 * then dark"). vdd_mcu_3v3 is regulator-always-on, so the chip
-+		 * retains its PWM across deep suspend when keep_alive is set.
++		 * then dark"). With keep_alive set the chip keeps its vdd_mcu_3v3
++		 * enable and retains its PWM across deep suspend.
 +		 */
 +		always-on;
  
