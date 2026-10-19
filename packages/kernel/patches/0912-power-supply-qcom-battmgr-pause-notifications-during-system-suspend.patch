@@ -19,8 +19,13 @@ thing to run after resume is ipcc_0 -> glink-smem -> PMIC_RTR_ADSP_APPS
 Ask the firmware to stop notifying while the system is suspended, using
 the same request the downstream driver sends when the panel blanks
 (BC_DISABLE_NOTIFY_REQ, 0x5, same layout as the enable request), and
-re-request notifications on resume, refreshing the supplies so userspace
-re-reads anything that changed in the meantime.
+re-request them once the AP has stayed awake for resume_notify_delay_ms
+(default 20 s) after resume, refreshing the supplies so userspace re-reads
+anything that changed in the meantime. A resume that suspends again sooner
+keeps them paused: a userspace "dark resume" loop (wake, update the charge
+LED, sleep again within a few seconds) otherwise re-enabled notifications on
+every round, and the next round was woken again about 12-25 s later, without
+end (Retroid Pocket 6, 2026-10-06..19: 26-601 such rounds a day).
 
 This is restricted to the SM8550 variant, where it was measured. It also
 applies with a charger attached: there the ADSP announces the start of
@@ -34,10 +39,9 @@ A failure to pause only logs a warning and never blocks suspend.
 
 ---
 diff --git a/drivers/power/supply/qcom_battmgr.c b/drivers/power/supply/qcom_battmgr.c
-index c7fce56..892deb2 100644
 --- a/drivers/power/supply/qcom_battmgr.c
 +++ b/drivers/power/supply/qcom_battmgr.c
-@@ -16,6 +16,7 @@
+@@ -17,6 +17,7 @@
  #include <linux/soc/qcom/pmic_glink.h>
  #include <linux/math.h>
  #include <linux/units.h>
@@ -45,7 +49,7 @@ index c7fce56..892deb2 100644
  
  #define BATTMGR_CHEMISTRY_LEN	4
  #define BATTMGR_STRING_LEN	128
-@@ -30,6 +31,7 @@ enum qcom_battmgr_variant {
+@@ -31,6 +32,7 @@
  #define BATTMGR_BAT_STATUS		0x1
  
  #define BATTMGR_REQUEST_NOTIFICATION	0x4
@@ -53,16 +57,18 @@ index c7fce56..892deb2 100644
  
  #define BATTMGR_NOTIFICATION		0x7
  #define NOTIF_BAT_PROPERTY		0x30
-@@ -336,6 +338,8 @@ struct qcom_battmgr {
+@@ -335,6 +337,10 @@
  	struct completion ack;
  
  	bool service_up;
 +	/* notifications were stopped by system suspend and must be re-requested */
 +	bool notifications_quiesced;
++	/* re-requests notifications once the AP has stayed awake after a resume */
++	struct delayed_work resume_notify_work;
  
  	struct qcom_battmgr_info info;
  	struct qcom_battmgr_status status;
-@@ -1442,6 +1446,7 @@ static void qcom_battmgr_sc8280xp_callback(struct qcom_battmgr *battmgr,
+@@ -1453,6 +1459,7 @@
  
  	switch (opcode) {
  	case BATTMGR_REQUEST_NOTIFICATION:
@@ -70,7 +76,7 @@ index c7fce56..892deb2 100644
  		battmgr->error = 0;
  		break;
  	case BATTMGR_BAT_INFO:
-@@ -1734,6 +1739,7 @@ static void qcom_battmgr_sm8350_callback(struct qcom_battmgr *battmgr,
+@@ -1760,6 +1767,7 @@
  		}
  		break;
  	case BATTMGR_REQUEST_NOTIFICATION:
@@ -78,7 +84,7 @@ index c7fce56..892deb2 100644
  	case BATTMGR_CHG_CTRL_LIMIT_EN:
  		battmgr->error = 0;
  		break;
-@@ -1776,6 +1782,79 @@ static void qcom_battmgr_enable_worker(struct work_struct *work)
+@@ -1802,6 +1810,103 @@
  		dev_err(battmgr->dev, "failed to request power notifications\n");
  }
  
@@ -90,10 +96,17 @@ index c7fce56..892deb2 100644
 + * AP out of suspend with no attributable wakeup IRQ, every few minutes.
 + * Ask the firmware to stop notifying for the duration of system sleep
 + * (the same request the downstream driver sends when the panel blanks)
-+ * and re-request notifications on resume, on battery and while charging
-+ * alike (charging is run by the firmware). Plugging a charger in while
-+ * suspended still reaches the AP.
++ * and re-request them once the AP has stayed awake after resume, on
++ * battery and while charging alike (charging is run by the firmware). A
++ * resume that suspends again sooner (a userspace dark resume) keeps them
++ * paused, so re-enabling cannot feed the next wake. Plugging a charger in
++ * while suspended still reaches the AP.
 + */
++static unsigned int resume_notify_delay_ms = 20000;
++module_param(resume_notify_delay_ms, uint, 0644);
++MODULE_PARM_DESC(resume_notify_delay_ms,
++		 "SM8550: ms the AP must stay awake after resume before battery notifications are re-requested (0 = at once)");
++
 +static int qcom_battmgr_set_notifications(struct qcom_battmgr *battmgr, bool enable)
 +{
 +	struct qcom_battmgr_enable_request req = {
@@ -119,6 +132,10 @@ index c7fce56..892deb2 100644
 +	if (battmgr->variant != QCOM_BATTMGR_SM8550 || !battmgr->service_up)
 +		return 0;
 +
++	/* resumed and suspended again before re-enabling: still paused */
++	if (cancel_delayed_work_sync(&battmgr->resume_notify_work))
++		return 0;
++
 +	/* a re-enable queued by the previous resume must not land after the pause */
 +	flush_work(&battmgr->enable_work);
 +
@@ -139,9 +156,24 @@ index c7fce56..892deb2 100644
 +
 +	if (!battmgr->notifications_quiesced)
 +		return 0;
-+	battmgr->notifications_quiesced = false;
 +
-+	/* re-arm notifications and let userspace re-read what changed meanwhile */
++	/*
++	 * Re-arm notifications and let userspace re-read what changed meanwhile,
++	 * but only once the AP has stayed awake for resume_notify_delay_ms
++	 * (jiffies do not advance while suspended).
++	 */
++	schedule_delayed_work(&battmgr->resume_notify_work,
++			      msecs_to_jiffies(resume_notify_delay_ms));
++
++	return 0;
++}
++
++static void qcom_battmgr_resume_notify_worker(struct work_struct *work)
++{
++	struct qcom_battmgr *battmgr = container_of(to_delayed_work(work), struct qcom_battmgr,
++						     resume_notify_work);
++
++	battmgr->notifications_quiesced = false;
 +	schedule_work(&battmgr->enable_work);
 +	if (battmgr->bat_psy)
 +		power_supply_changed(battmgr->bat_psy);
@@ -149,8 +181,6 @@ index c7fce56..892deb2 100644
 +		power_supply_changed(battmgr->usb_psy);
 +	if (battmgr->wls_psy)
 +		power_supply_changed(battmgr->wls_psy);
-+
-+	return 0;
 +}
 +
 +static DEFINE_SIMPLE_DEV_PM_OPS(qcom_battmgr_pm_ops, qcom_battmgr_suspend, qcom_battmgr_resume);
@@ -158,7 +188,7 @@ index c7fce56..892deb2 100644
  static void qcom_battmgr_pdr_notify(void *priv, int state)
  {
  	struct qcom_battmgr *battmgr = priv;
-@@ -1817,6 +1896,7 @@ static int qcom_battmgr_probe(struct auxiliary_device *adev,
+@@ -1843,6 +1948,7 @@
  		return -ENOMEM;
  
  	battmgr->dev = dev;
@@ -166,7 +196,19 @@ index c7fce56..892deb2 100644
  
  	psy_cfg.drv_data = battmgr;
  	psy_cfg.fwnode = dev_fwnode(&adev->dev);
-@@ -1956,6 +2036,9 @@ static struct auxiliary_driver qcom_battmgr_driver = {
+@@ -1942,6 +2048,11 @@
+ 	if (ret)
+ 		return ret;
+ 
++	ret = devm_delayed_work_autocancel(dev, &battmgr->resume_notify_work,
++					   qcom_battmgr_resume_notify_worker);
++	if (ret)
++		return ret;
++
+ 	/*
+ 	 * Wake the AP on a charger attach/detach (the USB/WLS notifications
+ 	 * handled above); the routine battery telemetry is left to the
+@@ -1987,6 +2098,9 @@
  	.name = "pmic_glink_power_supply",
  	.probe = qcom_battmgr_probe,
  	.id_table = qcom_battmgr_id_table,
