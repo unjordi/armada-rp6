@@ -6,12 +6,11 @@ Subject: [PATCH] leds: htr3212: retain LED pattern through system suspend
 Add an optional keep_alive sysfs attribute on the HTR3212 controller. When
 set, the driver skips the software/hardware shutdown and regulator_disable in
 its system suspend hook (and the matching re-init on resume), so the chip keeps
-driving its last PWM pattern with no CPU. Its vdd rail is a regulator-always-on
-fixed regulator, so nothing gets physically cut.
+driving its last PWM pattern with no CPU. Keeping its own enable of the vdd
+supply keeps a shared rail up while the other consumers release theirs.
 
-This lets a charge-indicator LED trigger keep painting the stick LEDs through
-deep sleep -- including being lit by the kernel when the charger is plugged in
-while the device is already asleep -- without waking userspace (armada#26).
+This lets a charge indicator painted on the stick LEDs before system suspend
+stay lit through deep sleep without waking userspace.
 ---
  drivers/leds/leds-htr3212.c | 64 +++++++++++++++++++++++++++++++++++++
  1 file changed, 64 insertions(+)
