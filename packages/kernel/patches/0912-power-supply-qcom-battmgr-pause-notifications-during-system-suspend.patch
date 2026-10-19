@@ -9,12 +9,8 @@ routed straight to the GIC, which stays powered in s2ram on this SoC
 (CX never collapses), so each of them pulls the AP out of suspend
 without an attributable wakeup IRQ (pm_wakeup_irq empty).
 
-On a Retroid Pocket 6 this showed up as the device waking up on its own
-every few minutes on battery: 56 spontaneous resumes in two days (52 on
-battery), median 6.8 minutes asleep. ftrace (boot clock, kprobes on
-qcom_ipcc_irq_fn and pmic_glink_rpmsg_callback) shows the very first
-thing to run after resume is ipcc_0 -> glink-smem -> PMIC_RTR_ADSP_APPS
--> owner BATTMGR, NOTIFY, opcode 0x7, NOTIF_BAT_STATUS.
+The first thing to run after such a resume is ipcc_0 -> glink-smem ->
+PMIC_RTR_ADSP_APPS -> owner BATTMGR, NOTIFY, opcode 0x7, NOTIF_BAT_STATUS.
 
 Ask the firmware to stop notifying while the system is suspended, using
 the same request the downstream driver sends when the panel blanks
@@ -22,19 +18,17 @@ the same request the downstream driver sends when the panel blanks
 re-request them once the AP has stayed awake for resume_notify_delay_ms
 (default 20 s) after resume, refreshing the supplies so userspace re-reads
 anything that changed in the meantime. A resume that suspends again sooner
-keeps them paused: a userspace "dark resume" loop (wake, update the charge
-LED, sleep again within a few seconds) otherwise re-enabled notifications on
-every round, and the next round was woken again about 12-25 s later, without
-end (Retroid Pocket 6, 2026-10-06..19: 26-601 such rounds a day).
+keeps them paused. The enable request carries a power-state baseline (sent
+as 0) that the firmware compares against its own power-state flag on every
+event, and that comparison is not gated by the pause: re-enabling on each
+short resume therefore made the next firmware event report BAT_STATUS and
+wake the AP again, round after round, for as long as a userspace "dark
+resume" loop (wake, update the charge LED, sleep again) kept going.
 
 This is restricted to the SM8550 variant, where it was measured. It also
-applies with a charger attached: there the ADSP announces the start of
-charging a few seconds after the plug, which woke the AP again right
-after it had gone back to sleep (Retroid Pocket 6, 2026-10-05: plug wake,
-then a glink-smem wake 6 s later with nothing to do). Charging itself is
-run by the firmware and does not depend on these notifications, and the
-plug itself still reached the AP with notifications paused (the plug wake
-above happened that way, on battery).
+applies with a charger attached: charging is run by the firmware and does
+not depend on these notifications, and a plug or unplug still reaches the
+AP with notifications paused (a power-state change is reported regardless).
 A failure to pause only logs a warning and never blocks suspend.
 
 ---
@@ -97,10 +91,10 @@ diff --git a/drivers/power/supply/qcom_battmgr.c b/drivers/power/supply/qcom_bat
 + * Ask the firmware to stop notifying for the duration of system sleep
 + * (the same request the downstream driver sends when the panel blanks)
 + * and re-request them once the AP has stayed awake after resume, on
-+ * battery and while charging alike (charging is run by the firmware). A
-+ * resume that suspends again sooner (a userspace dark resume) keeps them
-+ * paused, so re-enabling cannot feed the next wake. Plugging a charger in
-+ * while suspended still reaches the AP.
++ * battery and while charging alike. A resume that suspends again sooner
++ * keeps them paused: the enable request resets the firmware's power-state
++ * baseline, so its next event would report BAT_STATUS even after the pause.
++ * Plugging a charger in while suspended still reaches the AP.
 + */
 +static unsigned int resume_notify_delay_ms = 20000;
 +module_param(resume_notify_delay_ms, uint, 0644);
