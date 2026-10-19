@@ -1,0 +1,115 @@
+#!/bin/bash
+# Write the charger-mode boot image to boot_a/boot_b for the next-boot
+# deployment. Powered on by a cable while off, the ABL boots those partitions
+# (not the ESP /KERNEL); this image is /KERNEL's kernel, initramfs and DTBs with
+# the charger cmdline and an unsigned AVB hash footer (accepted while unlocked).
+# It also blanks the init_boot_a/b headers so the ABL never uses their ramdisk.
+# Only on devices with ARMADA_CHARGER_MODE=1; a failure never touches /KERNEL.
+set -euo pipefail
+
+ESP="${ESP:-/boot/efi}"
+BOOTROOT="${BOOTROOT:-/boot}"
+SYSROOT="${SYSROOT:-/}"
+MKBOOTIMG="${MKBOOTIMG:-/usr/libexec/armada/mkbootimg.py}"
+AVBTOOL="${AVBTOOL:-/usr/libexec/armada/avbtool.py}"
+DTB_LIST="${DTB_LIST:-/usr/lib/armada/supported-dtbs}"
+ARGS_FILE="${ARGS_FILE:-/usr/lib/armada/bootimg-args}"
+DEVICE_ENV="${ARMADA_DEVICE_ENV:-/usr/libexec/armada/device-env}"
+PART_DIR="${ARMADA_CHARGER_PART_DIR:-/dev/disk/by-partlabel}"
+BOOT_SIZE="${ARMADA_CHARGER_BOOT_SIZE:-100663296}"
+STAMP="${ESP}/.armada-chargerimg.id"
+prog=armada-chargerimg-update
+
+eval "$("${DEVICE_ENV}" 2>/dev/null)" || true
+[ "${ARMADA_CHARGER_MODE:-0}" = 1 ] || exit 0
+
+[ -r "${DTB_LIST}" ] || { echo "${prog}: missing ${DTB_LIST}" >&2; exit 1; }
+[ -r "${ARGS_FILE}" ] || { echo "${prog}: missing ${ARGS_FILE}" >&2; exit 1; }
+. "${ARGS_FILE}"
+
+findmnt -rn "${ESP}" >/dev/null 2>&1 || {
+    echo "${prog}: ${ESP} is not a mountpoint; refusing to stamp" >&2; exit 1; }
+
+exec 9>"${ARMADA_CHARGERIMG_LOCK:-/run/armada-chargerimg.lock}"
+flock -w 30 9 || { echo "${prog}: timed out waiting for another run" >&2; exit 1; }
+
+part_size() { if [ -b "$1" ]; then blockdev --getsize64 "$1"; else stat -c %s "$1"; fi; }
+resolve_part() { # $1 = partition label
+    local p
+    p=$(readlink -f "${PART_DIR}/$1" 2>/dev/null) && [ -e "${p}" ] || {
+        echo "${prog}: partition $1 not found" >&2; return 1; }
+    printf '%s' "${p}"
+}
+boot_a=$(resolve_part boot_a) || exit 1
+boot_b=$(resolve_part boot_b) || exit 1
+[ "${boot_a}" != "${boot_b}" ] || { echo "${prog}: boot_a and boot_b are the same device" >&2; exit 1; }
+for p in "${boot_a}" "${boot_b}"; do
+    [ "$(part_size "${p}")" = "${BOOT_SIZE}" ] || {
+        echo "${prog}: ${p} is not ${BOOT_SIZE} bytes; refusing to write" >&2; exit 1; }
+done
+
+# init_boot with an Android header (v4, ramdisk) is preferred by the ABL over
+# boot's own ramdisk: zero its header so only our image is used.
+blank_init_boot() {
+    local label p
+    for label in init_boot_a init_boot_b; do
+        p=$(resolve_part "${label}" 2>/dev/null) || continue
+        [ "$(head -c 8 "${p}" 2>/dev/null)" = "ANDROID!" ] || continue
+        dd if=/dev/zero of="${p}" bs=4096 count=1 conv=fsync,notrunc status=none &&
+            [ "$(head -c 8 "${p}" | tr -d '\0')" = "" ] &&
+            echo "${prog}: cleared the ${label} header" ||
+            echo "${prog}: could not clear the ${label} header" >&2
+    done
+}
+
+armada_bootimg_resolve "${prog}" || exit 1
+cmdline=$(armada_bootimg_cmdline "${options}") || {
+    echo "${prog}: no ostree= karg in ${entry}" >&2; exit 1; }
+cmdline=$(armada_charger_cmdline "${cmdline}")
+if [ "${#cmdline}" -gt "${ARMADA_CMDLINE_MAX}" ]; then
+    echo "${prog}: charger cmdline is ${#cmdline}B, over the ${ARMADA_CMDLINE_MAX}B limit" >&2
+    exit 1
+fi
+
+id=$({ printf '%s\n%s\n' "${cmdline}" "${BOOT_SIZE}"
+       armada_bootimg_content_id "${content_files[@]}" "${DTB_LIST}" "${ARGS_FILE}" "${MKBOOTIMG}" "${AVBTOOL}"
+     } | sha256sum | cut -d' ' -f1)
+if [ "$(cat "${STAMP}" 2>/dev/null || true)" = "${id}" ]; then
+    blank_init_boot
+    echo "${prog}: boot_a/boot_b already current (${linux##*/})"
+    exit 0
+fi
+
+work=$(mktemp -d)
+trap 'rm -rf "${work}"' EXIT
+armada_bootimg_kernel_gz "${prog}" "${work}/kernel.gz" || exit 1
+patch=$(date '+%Y-%m')
+python3 "${MKBOOTIMG}" \
+    --kernel "${work}/kernel.gz" --ramdisk "${ipath}" \
+    ${ARMADA_BOOTIMG_ARGS} --os_patch_level "${patch}" \
+    --cmdline "${cmdline}" -o "${work}/boot.img"
+os_version=$(sed -n 's/.*--os_version \([^ ]*\).*/\1/p' <<<"${ARMADA_BOOTIMG_ARGS}")
+python3 "${AVBTOOL}" add_hash_footer --image "${work}/boot.img" \
+    --partition_name boot --partition_size "${BOOT_SIZE}" --algorithm NONE \
+    --salt "$(printf '%s' "${id}" | sha256sum | cut -d' ' -f1)" \
+    --prop "com.android.build.boot.os_version:${os_version}" \
+    --prop "com.android.build.boot.security_patch:${patch}-01"
+info=$(python3 "${AVBTOOL}" info_image --image "${work}/boot.img") &&
+    grep -q "Partition Name: *boot" <<<"${info}" && grep -q "Algorithm: *NONE" <<<"${info}" || {
+    echo "${prog}: AVB footer check failed; not writing" >&2; exit 1; }
+want=$(sha256sum "${work}/boot.img" | cut -d' ' -f1)
+
+write_one() { # $1 = partition device
+    [ "$(sha256sum "$1" | cut -d' ' -f1)" = "${want}" ] && return 0
+    dd if="${work}/boot.img" of="$1" bs=4M conv=fsync,notrunc status=none || {
+        echo "${prog}: write failed for $1" >&2; return 1; }
+    [ -b "$1" ] && blockdev --flushbufs "$1"
+    [ "$(sha256sum "$1" | cut -d' ' -f1)" = "${want}" ] || {
+        echo "${prog}: readback failed for $1" >&2; return 1; }
+}
+write_one "${boot_a}" || exit 1
+write_one "${boot_b}" || exit 1
+printf '%s' "${id}" > "${STAMP}"
+sync
+blank_init_boot
+echo "${prog}: wrote boot_a/boot_b for ${linux##*/}"

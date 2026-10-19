@@ -108,3 +108,19 @@ armada_bootimg_kernel_gz() {
         cat "${dtb}" >> "${out}"
     done < "${DTB_LIST}"
 }
+
+# /KERNEL cmdline to the charger-mode one: the ABL boots boot_a/boot_b when the
+# device is powered on by a cable while off. No text console on the panel, and
+# systemd starts armada-charger.target instead of the session.
+armada_charger_cmdline() {
+    local t out=""
+    local -
+    set -f
+    for t in $1; do
+        case "${t}" in
+            console=tty0|systemd.unit=*) continue ;;
+            *) out="${out:+${out} }${t}" ;;
+        esac
+    done
+    printf '%s systemd.unit=armada-charger.target' "${out}"
+}

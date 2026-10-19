@@ -17,11 +17,15 @@ TimeoutStopSec=180
 # Completes a regen that died in the previous shutdown. '-' is load-bearing: a
 # failed start would fail the unit and skip ExecStop.
 ExecStart=-/usr/bin/ionice -c 2 -n 7 /usr/libexec/armada/armada-bootimg-update --snapshot-prev
+# Charger-mode image (boot_a/boot_b) at boot too: the shutdown that follows an
+# update runs the previous image's units, which may not have this step.
+ExecStart=-/usr/bin/ionice -c 2 -n 7 /usr/libexec/armada/armada-chargerimg-update
 # Keep manual rollback and other non-staged BLS changes in sync. Staged-update
 # failure handling belongs to the OSTree finalization hook.
 ExecStop=/usr/libexec/armada/armada-bootimg-update
 # ABL writes are allowed only after /KERNEL sync succeeds.
 ExecStop=-/usr/libexec/armada/armada-abl-finalize
+ExecStop=-/usr/libexec/armada/armada-chargerimg-update
 
 [Install]
 WantedBy=multi-user.target
