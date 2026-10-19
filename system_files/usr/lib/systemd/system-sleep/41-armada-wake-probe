@@ -39,9 +39,10 @@ if [[ "${1:-}" == pre ]]; then
     mkdir -p "$run_dir" 2>/dev/null || true
     # Snapshot the FULL interrupts table; we diff by NAME in post.
     cp -f "$proc_interrupts" "$run_dir/interrupts.pre" 2>/dev/null || true
-    # Turn on kernel PM debug so the resume log names the source (best-effort).
+    # Kernel PM debug messages for this one cycle only; post puts the old value back.
+    # pm_print_times is left alone (one line per device callback per cycle: it fills the journal).
+    cat "$sysfs_root/power/pm_debug_messages" 2>/dev/null >"$run_dir/pm_debug_messages.pre" || true
     printf '1\n' >"$sysfs_root/power/pm_debug_messages" 2>/dev/null || true
-    printf '1\n' >"$sysfs_root/power/pm_print_times" 2>/dev/null || true
     # Entry timestamp (ISO-8601).
     date -Iseconds >"$run_dir/pre.ts" 2>/dev/null || true
     # Battery state at entry.
@@ -119,6 +120,10 @@ if [[ "${1:-}" == post ]]; then
         fi
         printf '\n=== end ===\n'
     } >"$rec" 2>/dev/null || true
+
+    if [[ -s "$run_dir/pm_debug_messages.pre" ]]; then
+        cat "$run_dir/pm_debug_messages.pre" >"$sysfs_root/power/pm_debug_messages" 2>/dev/null || true
+    fi
 
     # Prune: keep at most 60 probe logs, drop the oldest.
     if [[ -d "$probe_dir" ]]; then
