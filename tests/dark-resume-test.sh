@@ -3,7 +3,7 @@
 # change is the charger (plug/unplug) must put the device back to sleep without
 # ever returning to the caller (so logind/Steam never see a resume), and so must
 # a wake nobody can name (battmgr doorbells); only the power button, an rtc
-# alarm, a failure or a wake storm end in the full resume of today. Uses a fake sysfs, /proc/interrupts, systemctl and a fake
+# alarm or a failure end in the full resume of today (a wake storm keeps sleeping). Uses a fake sysfs, /proc/interrupts, systemctl and a fake
 # systemd-sleep that replays a script of "events", one per invocation.
 set -euo pipefail
 
@@ -20,7 +20,7 @@ pk_file="$tmp/pwrkey0"; hook_log="$tmp/hook56.log"
 
 # --- fake systemd-sleep: applies event N of the script, then returns ----------
 # events: usb=<0|1> | pwrkey (counter+1, wake IRQ none) | pwrkey-irq (counter+1,
-# IRQ 21) | rtc | fail | none
+# IRQ 21) | rtc | fail | none | slow (none after sleeping 2.2 s)
 cat >"$tmp/systemd-sleep" <<'FAKE'
 #!/bin/bash
 n=$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$COUNTER"
@@ -39,6 +39,7 @@ case "$ev" in
     pwrkey-irq) bump; echo 21 >"$SYSFS/power/pm_wakeup_irq" ;;
     rtc) echo 200 >"$SYSFS/power/pm_wakeup_irq" ;;
     fail) exit 3 ;;
+    slow) sleep 2.2 ;;
 esac
 exit 0
 FAKE
@@ -152,22 +153,30 @@ check "late online beyond the budget: still sleeps again (2 rounds)" "$(calls)" 
 has "late online beyond the budget: reason=other" "reason=other" "$ledger"
 sleep 0.3   # let the fake's background writer finish before the next run()
 
-# 5) storm guard: MAX consecutive short rounds end in a full resume.
+# 5) storm guard: MAX consecutive short rounds are one wake storm: a single
+# reason=wakestorm line, no line for the rest of its short rounds, and the
+# device keeps sleeping until the button.
 export ARMADA_DARK_RESUME_MAX=3
-run usb=1 usb=0 usb=1 usb=0 usb=1 usb=0
+run usb=1 usb=0 usb=1 usb=0 usb=1 usb=0 pwrkey-irq
 unset ARMADA_DARK_RESUME_MAX
-check "cap: stops after MAX sleep calls" "$(calls)" 3
-has "cap: ledger reason=cap" "reason=cap" "$ledger"
-check "cap: two charger rounds before the cap" "$(nlines reason=charger "$ledger")" 2
-has "cap: thawed" "^thaw user.slice" "$sc_log"
-has "cap: LEDs handed back" "post suspend force=1" "$hook_log"
-ARMADA_DARK_RESUME_MAX=3 run none none none none
-check "storm of unnamed wakes: stops after MAX calls" "$(calls)" 3
-has "storm of unnamed wakes: reason=cap" "reason=cap" "$ledger"
+check "wakestorm: keeps sleeping until the button" "$(calls)" 7
+check "wakestorm: one line for the storm" "$(nlines reason=wakestorm "$ledger")" 1
+check "wakestorm: two charger rounds before it" "$(nlines reason=charger "$ledger")" 2
+check "wakestorm: storm rounds not logged" "$(wc -l <"$ledger" | tr -d ' ')" 4
+has "wakestorm: ended by the button" "reason=user" "$ledger"
+lacks "wakestorm: never a full resume of its own (no reason=cap)" "reason=cap" "$ledger"
+lacks "wakestorm: user wake does not force the LED restore" "post suspend force=1" "$hook_log"
+ARMADA_DARK_RESUME_MAX=3 run none none none none none pwrkey-irq
+check "storm of unnamed wakes: keeps sleeping until the button" "$(calls)" 6
+check "storm of unnamed wakes: one wakestorm line" "$(nlines reason=wakestorm "$ledger")" 1
+# a round that slept long ends the storm; a new run of short rounds is a new storm.
+ARMADA_DARK_RESUME_MAX=2 ARMADA_DARK_RESUME_STORM_SECS=2 run none none none slow none none pwrkey-irq
+check "storm reset by a long round: two storms logged" "$(nlines reason=wakestorm "$ledger")" 2
+check "storm reset by a long round: other lines outside the storms" "$(nlines reason=other "$ledger")" 3
 # 5b) rounds that slept long (a night of charging) never count toward the guard.
 ARMADA_DARK_RESUME_MAX=2 ARMADA_DARK_RESUME_STORM_SECS=0 run usb=1 none usb=0 none pwrkey-irq
-check "long rounds: no cap, the button ends it" "$(calls)" 5
-lacks "long rounds: no reason=cap" "reason=cap" "$ledger"
+check "long rounds: the button ends it" "$(calls)" 5
+lacks "long rounds: no wakestorm" "reason=wakestorm" "$ledger"
 
 # 6) freeze fails -> today's behaviour: plain exec of systemd-sleep, no loop.
 FAKE_FREEZE_FAIL=1 run usb=1 pwrkey-irq
