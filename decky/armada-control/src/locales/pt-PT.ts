@@ -284,4 +284,5 @@ export const ptPT = {
   "releaseNotes.titleNoVersion": "Novidades",
   "releaseNotes.pending": "Atualização disponível",
   "releaseNotes.installed": "Versão instalada",
+  "releaseNotes.more": "+{count} mais",
 } as const satisfies Record<TranslationKey, string>;

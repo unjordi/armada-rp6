@@ -66,6 +66,25 @@ lacks "oldest commits are cut" "slider fix" "$out"
 out="$("$SCRIPT" --repo "$repo" --version v --from "$base" --max-bytes 100000)"
 lacks "no ellipsis when under the cap" "…" "$out"
 
+# Detail length: whole up to 600 chars, longer cut at a sentence end, never mid-word.
+sent="This sentence has exactly fifty characters in it ok."
+short="$(printf '%s ' "$sent" "$sent" "$sent" "$sent" "$sent" "$sent" "$sent" "$sent" "$sent" "$sent" "$sent")"; short="${short% }"   # 11 sentences = 571 chars
+long="$short Trailing words that run past the limit without ending here"
+exact="$(printf 'w%.0s' $(seq 1 600))"
+commit "$(printf 'feat: short detail\n\n%s' "$short")"
+commit "$(printf 'feat: long detail\n\n%s' "$long")"
+commit "$(printf 'feat: exact detail\n\n%s' "$exact")"
+nodot="$(printf 'alpha %.0s' $(seq 1 150))"
+commit "$(printf 'feat: no sentence end\n\n%s' "$nodot")"
+out="$("$SCRIPT" --repo "$repo" --version v --from "$head")"
+detail() { grep -A1 -F -- "- feat: $1" <<<"$out" | sed -n 2p; }
+check "detail of 571 chars is kept whole" "$(detail 'short detail')" "  $short"
+check "detail over 600 chars is cut at the last sentence end" "$(detail 'long detail')" "  $short…"
+check "detail of exactly 600 chars is kept whole" "$(detail 'exact detail')" "  $exact"
+cut="$(detail 'no sentence end')"
+check "without a sentence end the cut is at a word boundary" "${cut: -6}" "alpha…"
+if (( ${#cut} <= 2 + 600 + 1 )); then echo "ok: cut detail within 600 chars"; else echo "FAIL: cut detail too long"; fail=1; fi
+
 rc=0; "$SCRIPT" --repo "$repo" >/dev/null 2>&1 || rc=$?
 check "missing --version is rejected" "$rc" 2
 

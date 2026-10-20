@@ -11,8 +11,13 @@
 //   * The notes come from the armada-release-notes tool: the pending update's,
 //     else the installed version's. With no notes the field is left untouched.
 //
-// If the component or the jsx runtime is not found (a steamui refactor),
-// install() logs once and changes nothing; the wrapper never throws into
+// The update-status component below the field (update_check_results plus
+// "#Settings_System_Update_Available") is swapped the same way; its Valve news
+// card (the child element with an `event` prop) is replaced by UpdateNotesCard
+// while an update is pending. With no pending notes Steam's card is untouched.
+//
+// If a component or the jsx runtime is not found (a steamui refactor),
+// install() logs once per component and changes nothing; the wrapper never throws into
 // Steam's render. Notes are fetched when the field mounts and cached for 60 s.
 
 import { beforePatch, findModule, findModuleExport } from "@decky/ui";
@@ -21,7 +26,17 @@ import { getReleaseNotes } from "../backend";
 import { openReleaseNotes } from "../components/ReleaseNotesModal";
 import { useLocale } from "../hooks/useLocale";
 import { t } from "../i18n";
-import { isUpdateFieldSource, overrideProps, pickNotes, type NotesSource } from "./releaseNotes";
+import { UpdateNotesCard } from "../components/UpdateNotesCard";
+import {
+  isUpdateFieldSource,
+  isUpdateStatusSource,
+  componentMatcher,
+  overrideProps,
+  pickNotes,
+  replaceElements,
+  replacesNewsCard,
+  type NotesSource,
+} from "./releaseNotes";
 
 interface LoadedNotes {
   source: NotesSource;
@@ -64,10 +79,10 @@ function useReleaseNotes(): LoadedNotes | null {
   return notes;
 }
 
-let warnedOnce = false;
-function warnOnce(...args: unknown[]) {
-  if (warnedOnce) return;
-  warnedOnce = true;
+const warned = new Set<string>();
+function warnOnce(key: string, ...args: unknown[]) {
+  if (warned.has(key)) return;
+  warned.add(key);
   try {
     console.warn("[armada-control:release-notes]", ...args);
   } catch {
@@ -75,12 +90,12 @@ function warnOnce(...args: unknown[]) {
   }
 }
 
-function findUpdateField(): ((props: any) => any) | null {
+function findComponent(matches: (source: string) => boolean): ((props: any) => any) | null {
   try {
     const found = findModuleExport((e: any) => {
       if (typeof e !== "function") return false;
       try {
-        return isUpdateFieldSource(Function.prototype.toString.call(e));
+        return matches(Function.prototype.toString.call(e));
       } catch {
         return false;
       }
@@ -103,18 +118,22 @@ function findJsxRuntime(): any {
 
 const hasOptionsButton = (props: any) => "onOptionsButton" in props;
 
+const hasEventProp = (props: any) => "event" in props;
+
 export function installUpdateReleaseNotes(): () => void {
-  const original = findUpdateField();
+  const field = findComponent(isUpdateFieldSource);
+  const status = componentMatcher(isUpdateStatusSource, findComponent(isUpdateStatusSource));
   const runtime = findJsxRuntime();
-  if (!original || !runtime) {
-    warnOnce("system-update field or jsx runtime not found; Steam's patch notes are left as they are");
+  if (!runtime) {
+    warnOnce("runtime", "jsx runtime not found; Steam's update screen is left as it is");
     return () => {};
   }
+  if (!field) warnOnce("field", "system-update field not found; Steam's patch notes button is left as it is");
 
   function UpdateFieldWithNotes(props: any) {
     useLocale();
     const notes = useReleaseNotes();
-    const tree = original!(props);
+    const tree = field!(props);
     if (!notes) return tree;
     try {
       return overrideProps(tree, hasOptionsButton, {
@@ -126,8 +145,23 @@ export function installUpdateReleaseNotes(): () => void {
     }
   }
 
+  function UpdateStatusWithNotes(props: any) {
+    useLocale();
+    const notes = useReleaseNotes();
+    const tree = (status.found() as (p: any) => any)(props);
+    if (!notes || !replacesNewsCard(notes)) return tree;
+    try {
+      return replaceElements(tree, hasEventProp, () => (
+        <UpdateNotesCard markdown={notes.markdown} onOpen={() => openReleaseNotes(notes.markdown, notes.source)} />
+      ));
+    } catch {
+      return tree;
+    }
+  }
+
   const swap = (args: any[]) => {
-    if (args[0] === original) args[0] = UpdateFieldWithNotes;
+    if (field && args[0] === field) args[0] = UpdateFieldWithNotes;
+    else if (args[0] !== UpdateStatusWithNotes && status.test(args[0])) args[0] = UpdateStatusWithNotes;
   };
   const patches = [beforePatch(runtime, "jsx", swap), beforePatch(runtime, "jsxs", swap)];
   return () => {
