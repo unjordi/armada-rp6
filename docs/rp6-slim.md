@@ -38,7 +38,8 @@ upstream's static set (`google-noto-sans-cjk-fonts`, 131 MB): same Japanese, Chi
 - **Everything games use:** turnip (Adreno Vulkan), **lavapipe** (CPU Vulkan fallback), Mesa, Zink, the Vulkan
   loader and layers, gamescope, MangoHud, FEX and its RootFS, the baked Proton. Only their documentation is removed.
 - **CJK text:** the variable CJK font above, and the input-method libraries (`libpinyin`, `anthy-unicode`) and
-  Qt5, which the on-screen keyboard (`maliit-keyboard`), KDE Frameworks 5 and `plasma-integration-qt5` link against.
+  Qt5, which KDE Frameworks 5 and `plasma-integration-qt5` link against. The on-screen keyboard is upstream's
+  `plasma-keyboard` (it replaced `maliit-keyboard`); the final check requires it.
 - **All firmware the RP6 hardware can load**, including `qcom/vpu` (video decoder; without it audio breaks)
   and `qca/` (WCN7850 Bluetooth).
 - Upstream's own cleanup is unchanged; this pass runs on top of it.
