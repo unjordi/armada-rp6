@@ -83,11 +83,16 @@ pkgs=(
     steam-devices
 )
 
-# What the image takes from Terra (steam-notif-daemon, two codec libraries)
-# comes from the terra-pins package, fixed by sha256, not from Terra live: a
-# Terra outage or half-published mirror cannot break the build.
-# Bump them in packages/terra-pins/pins.txt.
-dnf5 -y install --setopt=install_weak_deps=False /packages/terra-pins/*.rpm
+# What the image takes from Terra (steam-notif-daemon, two codec libraries,
+# scx-tools) comes from the terra-pins package, fixed by sha256, not from Terra
+# live: a Terra outage or half-published mirror cannot break the build.
+# Bump them in packages/terra-pins/pins.txt. scx-tools requires scx-scheds and
+# is installed with it in 12-armada-packages.sh.
+terra_pins=()
+for rpm in /packages/terra-pins/*.rpm; do
+    [[ "${rpm##*/}" == scx-tools-* ]] || terra_pins+=("${rpm}")
+done
+dnf5 -y install --setopt=install_weak_deps=False "${terra_pins[@]}"
 
 dnf5 -y install --setopt=install_weak_deps=False "${pkgs[@]}"
 

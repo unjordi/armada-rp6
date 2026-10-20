@@ -273,7 +273,7 @@ them in Armada Control.
   a built artifact as its argument, such as `lepton-split-test.sh`, is reported as SKIP) and builds the image for
   pull requests without publishing.
 - **terra-pins:** `packages/terra-pins/` fixes the RPMs the image takes from Terra by sha256 in `pins.txt`
-  (5 pins). The image build installs them from that package and never contacts Terra, so a Terra outage or
+  (4 pins: steam-notif-daemon, two codec libraries, and scx-tools, which upstream takes from Terra live for its own scx-scheds). The image build installs them from that package and never contacts Terra, so a Terra outage or
   half-published mirror cannot break it. A package may ship its own `Containerfile.package`;
   `packages/containerfile-for.sh` selects it without changing other packages' hashes.
 - **dnf-retry:** `build_files/dnf-retry.sh` wraps `dnf5` during the build and retries only failures that

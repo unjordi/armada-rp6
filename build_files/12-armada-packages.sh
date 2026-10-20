@@ -53,6 +53,7 @@ pkgs=(
     # scx_cosmos/scx_lavd for the Armada Control scheduler setting; without the
     # binaries armada-powerd reports the scheduler choice as unavailable.
     /packages/scx-scheds/scx-scheds-[0-9]*.rpm
+    /packages/terra-pins/scx-tools-[0-9]*.rpm
 
     # MTP support
     /packages/umtp-responder/umtp-responder-*.rpm
