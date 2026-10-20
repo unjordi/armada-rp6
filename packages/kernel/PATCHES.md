@@ -353,6 +353,11 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0566-clk-qcom-gcc-sm8550-let-the-pcie-gdscs-collapse-in-suspend.patch`
   source: armada
   upstream: local
+  notes: Not in the series. On the RP6 suspend-to-RAM keeps the PCIe link up (0522a keeps the root port's D3cold veto), and with OFF_ON the GDSC would collapse under it. SM8550 keeps RET_ON and the 0520 floor.
+- `patches/0520-arm64-dts-qcom-sm8550-add-a-pcie-suspend-opp.patch`
+  source: armada
+  upstream: not submitted
+  notes: Companion DT for 0513. `opp-hz` is synthetic and `opp-level` is omitted so the OPP can never be selected for a trained link by either match in `qcom_pcie_icc_opp_update()`. pcie1 is disabled in the SM8550 board DTS files that use this table and gets no suspend OPP.
 - `patches/0567-clk-qcom-gcc-sm8650-let-the-pcie-gdscs-collapse-in-suspend.patch`
   source: armada
   upstream: local
