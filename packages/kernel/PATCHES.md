@@ -34,9 +34,6 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/ROCKNIX/distribution/blob/60bb58c1db053255b700f3953b72d619ec5aa85d/projects/ROCKNIX/devices/SM8550/patches/linux/0066-drm-msm-dpu-enable-sm8550-inline-rotation.patch
   upstream: unknown
   notes: Armada merged the ROCKNIX SM8550, SM8650 and SM8750 patches into one for the combined kernel, with one shared feature mask and rotation config.
-- `patches/0067-drm-msm-dpu-enable-qseed-detail-enhancer.patch`
-  source: https://github.com/ROCKNIX/distribution/blob/60bb58c1db053255b700f3953b72d619ec5aa85d/projects/ROCKNIX/devices/SM8550/patches/linux/0067-drm-msm-dpu-enable-qseed-detail-enhancer.patch
-  upstream: unknown
 - `patches/0068-drm-msm-dpu-lutdma-dspp-igc-gamut.patch`
   source: armada
   upstream: local
@@ -50,6 +47,9 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: armada
   upstream: local
 - `patches/0077-drm-msm-dpu-plane-igc-3d-lut-color-pipelines.patch`
+  source: armada
+  upstream: local
+- `patches/0078-drm-msm-dpu-fix-vblank-timestamps-on-command-mode-panels.patch`
   source: armada
   upstream: local
 - `patches/0016-rp5-smooth-brightness-adjustment.patch`
@@ -96,6 +96,14 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0106-drm-panel-il97680a-luminance-linear-backlight-scale.patch`
   source: armada
   upstream: not submitted
+- `patches/0107-drm-msm-dpu-AVR-variable-refresh-on-DSI-video-mode.patch`
+  source: https://github.com/portare-ch/portareos/blob/67ed458421d919aba9c687c3f72d7678954b6902/projects/PortareOS/devices/SM8550/patches/linux/1097-drm-msm-dpu-AVR-variable-refresh-on-DSI-video-mode.patch
+  upstream: unknown
+  notes: Rebased onto Armada’s Linux 7.2.6 display stack and panel driver, retaining its 60/120 Hz modes and luminance-linear backlight; the range is 80–120 Hz, following PortareOS #601.
+- `patches/0108-drm-msm-dpu-send-the-flip-event-after-the-vblank-irq.patch`
+  source: https://github.com/portare-ch/portareos/blob/be06100b6d127692ed99401d23980fc04888ae01/projects/PortareOS/devices/SM8550/patches/linux/1098-drm-msm-dpu-send-the-flip-event-after-the-vblank-irq.patch
+  upstream: unknown
+  notes: Companion flip-event ordering fix for AVR; refreshed offsets for Armada and added the source link to the patch header. Armada restricts the kickoff-count wait to encoders that receive the vblank irq: a bonded DSI slave never does, so on dual-DSI panels (AYANEO Pocket S 2K) every commit hit the 50 ms timeout.
 - `patches/0062-gpu-drm-panel-add-wt0630-panel.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/0062-gpu-drm-panel-add-wt0630-panel.patch
   upstream: https://lore.kernel.org/r/20260625-topic-sm8650-ayaneo-pocket-s2-r63419-v8-2-8570e692143e@linaro.org
@@ -198,9 +206,18 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/ROCKNIX/distribution/blob/024028b4f3fdd139ae1e575efb25914b8f76595d/projects/ROCKNIX/devices/SM8750/patches/linux/0069-input-misc-add-konkr-sysbtn-MCU-system-buttons.patch
   upstream: unknown
   notes: Updated to ROCKNIX #3089, which adds the MCU-rendered stick lighting effects (sysfs "effect": static/breath/rainbow) and fixes the PM notifier to replay the active lighting mode after resume instead of only the last static colour.
+- `patches/0069a-input-konkr-sysbtn-add-pocket-fit-mcu.patch`
+  source: armada
+  upstream: local
+- `patches/0541-input-joystick-mcu-joystick-power-the-mcu-off-in-suspend.patch`
+  source: armada
+  upstream: local
 - `patches/0060_Mangmi-Pocket-Max-SPI-joypad.patch`
   source: https://github.com/ROCKNIX/distribution/blob/807c74fc46c124891d8aa9b57a68533d38e9a6b2/projects/ROCKNIX/devices/SM8250/patches/linux/0060_Mangmi-Pocket-Max-SPI-joypad.patch
   upstream: unknown
+- `patches/0060b-input-mangmi-pocket-max-keep-trigger-conversion-independent-of-calibration.patch`
+  source: armada
+  upstream: local
 - `patches/0031_input--Add-driver-for-RSInput-Gamepad.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/0031_input--Add-driver-for-RSInput-Gamepad.patch
   upstream: unknown
@@ -251,6 +268,10 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/1006-tty-serial-qcom-geni-mask-non-console-irq-on-suspend.patch`
   source: https://github.com/thorch-os/thorch/blob/2614a262d7de3f31bd47a0c92981461146663847/packages/linux-thorch/patches/0010-tty-serial-qcom-geni-mask-non-console-irq-on-suspend.patch
   upstream: unknown
+- `patches/0534-serial-qcom-geni-add-force-suspend-resume-to-system-sleep-callbacks.patch`
+  source: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=d0cd9c8d0fd59bc7d140f3d60cf02e1d80376dab
+  upstream: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=d0cd9c8d0fd59bc7d140f3d60cf02e1d80376dab
+  notes: Backported to Linux 7.2 on top of 1006, re-enabling the masked IRQ when the force suspend or force resume fails.
 - `patches/1007-input-rsinput-drop-the-mcu-supply-across-system-sleep.patch`
   source: armada
   upstream: local
@@ -287,6 +308,9 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/ROCKNIX/distribution/blob/4609c5017f350e6e2307ec909e328454d5bec062/projects/ROCKNIX/devices/SM8550/patches/linux/0054_sn3112-pwm-driver.patch
   upstream: https://lore.kernel.org/r/20240424-ayn-odin2-initial-v1-2-e0aa05c991fd@gmail.com
   notes: Includes ROCKNIX #3110's fix for the arm64 probe crash: set_bit()/clear_bit() on a cast uint8_t[3] alignment-faults under LSE atomics, replaced with plain bitwise ops under priv->lock. The matching Odin 2 DTS change re-enables the sn3112 nodes that were disabled to dodge the crash.
+- `patches/0054c-pwm-sn3112-power-down-across-system-suspend.patch`
+  source: armada
+  upstream: local
 - `patches/20260424_neil_armstrong_arm64_dts_qcom_sm8_456_50_add_missing_cx_power_domain_to_gcc.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/20260424_neil_armstrong_arm64_dts_qcom_sm8_456_50_add_missing_cx_power_domain_to_gcc.patch
   upstream: https://lore.kernel.org/r/20260615-topic-sm8x50-tie-gcc-to-cx-v2-0-6b5752dd4747@linaro.org
@@ -314,6 +338,27 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0511-scsi-ufs-qcom-reenable-irq-on-host-reset-failure.patch`
   source: armada
   upstream: local
+- `patches/0533-scsi-ufs-ufs-qcom-enable-only-lane-clocks-in-lane-clock-apis.patch`
+  source: https://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git/commit/?id=f07317a8d57f382ec505597816271dd72ffa20c7
+  upstream: https://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git/commit/?id=f07317a8d57f382ec505597816271dd72ffa20c7
+- `patches/0535-scsi-ufs-core-fast-abort-unsupported-query-idns.patch`
+  source: https://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git/commit/?id=d1fa5cea5dcd72a9ec21b835c572a28c0c3f4fbf
+  upstream: https://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git/commit/?id=d1fa5cea5dcd72a9ec21b835c572a28c0c3f4fbf
+- `patches/0536-scsi-ufs-core-dynamically-disable-timestamp-on-unsupported-devices.patch`
+  source: https://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git/commit/?id=00eec343c7306be7f1103f5002abd77496937ff9
+  upstream: https://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git/commit/?id=00eec343c7306be7f1103f5002abd77496937ff9
+- `patches/0537-usb-xhci-pci-renesas-let-the-controller-power-off-in-suspend.patch`
+  source: armada
+  upstream: local
+- `patches/0566-clk-qcom-gcc-sm8550-let-the-pcie-gdscs-collapse-in-suspend.patch`
+  source: armada
+  upstream: local
+- `patches/0567-clk-qcom-gcc-sm8650-let-the-pcie-gdscs-collapse-in-suspend.patch`
+  source: armada
+  upstream: local
+- `patches/0568-arm64-dts-qcom-sm8250-cpu-ddr-votes-active-only.patch`
+  source: https://github.com/kettlelinux/kettlelinux/blob/c2849b95b3af9bf6d1d52cefa1e66167a22c86b4/kernel/patches/21-sm8250/0114-arm64-dts-qcom-sm8250-cpu-ddr-votes-active-only.patch
+  upstream: unknown
 - `patches/0512-PCI-qcom-skip-L23-ready-poll-on-SM8550.patch`
   source: armada
   upstream: local
@@ -321,6 +366,9 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: armada
   upstream: not submitted
   notes: On OPP-scaling platforms the OPP carries the only PCIe memory-path votes, so dropping it to NULL on non-S2RAM suspend leaves the RPMh sleep set with no DDR/LLCC contract and the AOP never resumes. Deliberately does not populate `pcie->icc_mem` on OPP platforms: `qcom_pcie_icc_opp_update()` prefers an `icc_mem` handle over the OPP branch, so providing one silently disables the post-link-training OPP update and pins the OPP at the probe-time maximum.
+- `patches/0556-remoteproc-qcom-pas-manage-the-sm8750-soccp.patch`
+  source: armada
+  upstream: local
 - `patches/0522-PCI-host-common-let-only-endpoints-veto-d3cold.patch`
   source: armada
   upstream: local
@@ -346,16 +394,6 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0001-pcie-update-sm8550-dtsi.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/0001-pcie-update-sm8550-dtsi.patch
   upstream: https://lore.kernel.org/r/20260611-wake-v2-33-2744251b1181@oss.qualcomm.com
-- `patches/0520-arm64-dts-qcom-sm8550-add-a-pcie-suspend-opp.patch`
-  source: armada
-  upstream: not submitted
-  notes: Companion DT for 0513. `opp-hz` is synthetic and `opp-level` is omitted so the OPP can never be selected for a trained link by either match in `qcom_pcie_icc_opp_update()`. pcie1 is disabled in the SM8550 board DTS files that use this table and gets no suspend OPP.
-- `patches/0521-arm64-dts-qcom-sm8750-add-a-pcie-suspend-opp.patch`
-  source: armada
-  upstream: local
-- `patches/0527-arm64-dts-qcom-sm8650-add-a-pcie-suspend-opp.patch`
-  source: armada
-  upstream: local
 - `patches/0120-20250728_konradybcio_gpu_cc_power_requirements_reality_check.patch`
   source: https://github.com/ROCKNIX/distribution/blob/ef264a238d5e2ba960145e3fda663dc27de49a80/projects/ROCKNIX/devices/SM8550/patches/linux/0120-20250728_konradybcio_gpu_cc_power_requirements_reality_check.patch
   upstream: https://lore.kernel.org/r/20250728-topic-gpucc_power_plumbing-v1-22-09c2480fe3e6@oss.qualcomm.com
@@ -376,6 +414,36 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/1021-wifi-ath12k-convert-scan-timeout-to-wiphy-delayed-work.patch`
   source: https://lkml.iu.edu/2609.1/17957.html
   upstream: https://lkml.iu.edu/2609.1/17957.html
+- `patches/1030-media-iris-send-the-stream-POC-type.patch`
+  source: armada
+  upstream: local
+- `patches/1031-media-iris-stop-AV1-tier-overwriting-HEVC-tier.patch`
+  source: armada
+  upstream: local
+- `patches/v9_20260801_sachin_garg_media_iris_cache_work_mode_in_iris_set_stage.patch`
+  source: https://lore.kernel.org/r/20260801-iris_multi_slice-v9-1-bddf1449c280@oss.qualcomm.com
+  upstream: https://lore.kernel.org/r/20260801-iris_multi_slice-v9-1-bddf1449c280@oss.qualcomm.com
+- `patches/1032-media-iris-count-CABAC-cost-in-the-decoder-VSP-clock.patch`
+  source: armada
+  upstream: local
+- `patches/1033-media-iris-add-decoder-display-delay-controls.patch`
+  source: armada
+  upstream: local
+- `patches/1034-media-iris-decode-in-stage-1-for-decode-order.patch`
+  source: armada
+  upstream: local
+- `patches/1035-media-iris-run-decode-order-sessions-at-the-highest-clock.patch`
+  source: armada
+  upstream: local
+- `patches/1036-media-iris-only-rescale-decoder-power-on-bitstream-queue.patch`
+  source: armada
+  upstream: local
+- `patches/1037-media-iris-decode-in-stage-1-at-the-top-clock-by-default.patch`
+  source: armada
+  upstream: local
+- `patches/1370-media-iris-a-resolution-change-last-buffer-is-not-an-error.patch`
+  source: https://github.com/kettlelinux/kettlelinux/blob/2b7661b4d937d7efbb487c4bba84f8705be7cc5d/kernel/patches/40-kettle/1370-media-iris-a-resolution-change-last-buffer-is-not-an-error.patch
+  upstream: unknown
 - `patches/0500-ROCKNIX-set-boot-fanspeed.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/0500-ROCKNIX-set-boot-fanspeed.patch
   upstream: unknown
@@ -397,10 +465,6 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0903-power-supply-qcom-battmgr-expose-the-charge-current-limit.patch`
   source: armada
   upstream: local
-- `patches/0900-power-supply-qcom-battmgr-log-usb-adapter-type.patch`
-  source: armada
-  upstream: local
-  notes: Armada wrote this diagnostic patch to log the USB type and Qualcomm firmware's adapter type when either value changes.
 - `patches/0001-pcie-update-sm8650-dtsi.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8650/patches/linux/0001-pcie-update-sm8650-dtsi.patch
   upstream: https://lore.kernel.org/r/20260611-wake-v2-35-2744251b1181@oss.qualcomm.com
@@ -456,6 +520,9 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0013-add-force-feedback.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8250/patches/linux/0013-add-force-feedback.patch
   upstream: unknown
+- `patches/0008a-input-retroid-keep-trigger-conversion-independent-of-calibration.patch`
+  source: armada
+  upstream: local
 - `patches/0063_Mangmi-Pocket-Max-HL7139-charge-pump.patch`
   source: https://github.com/ROCKNIX/distribution/blob/807c74fc46c124891d8aa9b57a68533d38e9a6b2/projects/ROCKNIX/devices/SM8250/patches/linux/0063_Mangmi-Pocket-Max-HL7139-charge-pump.patch
   upstream: unknown
@@ -495,6 +562,24 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8250/patches/linux/9999-remove-log-spam.patch
   upstream: unknown
   notes: Armada carries only the ROCKNIX device-tree change that disables CoreSight STM and omits the broader log-suppression changes from the source patch.
+- `patches/0301-drm-panel-add-ayaneo-ar18-panel.patch`
+  source: https://github.com/ROCKNIX/distribution/blob/aa418ad72e3e661b3834f46168bdf183276df2ac/projects/ROCKNIX/devices/SM8550/patches/linux/0064-gpu-drm-panel-add-ar16-4inch-panel.patch
+  upstream: not submitted
+  notes: Rewritten for the AYANEO Pocket MICRO 2 ST7123 panel on the mipi_dsi_multi_context API; timings and init sequence from the vendor device tree.
+- `patches/0302-input-touchscreen-add-sitronix-st7123.patch`
+  source: https://github.com/raspberrypi/linux/commit/6d4adb6bfea64581dff1c670a17333b63b8ba05d
+  upstream: not submitted
+  notes: Waveshare's Sitronix ST7123 driver from the Raspberry Pi kernel (rpi-6.18.y), with chip id 0x87 accepted for the AYANEO Pocket MICRO 2.
+- `patches/0303-hid-add-ayaneo-pocket-micro2-force-feedback.patch`
+  source: armada
+  upstream: local
+  notes: Rumble report format from the stock Android kernel's hid-ayaneo. Binds on every AYANEO 4001:0428 pad, rumble only on the Pocket MICRO 2.
+- `patches/0304-ASoC-wcd938x-treat-failed-zdet-ramp-as-floating.patch`
+  source: armada
+  upstream: local
+- `patches/0305-backlight-qcom-wled-always-disable-ovp-irq-at-probe.patch`
+  source: armada
+  upstream: local
 - `patches/0026-dt-bindings-arm-qcom-ids-Add-SoC-ID-for-CQ8725S.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8750/patches/linux/0026-dt-bindings-arm-qcom-ids-Add-SoC-ID-for-CQ8725S.patch
   upstream: https://lore.kernel.org/r/20260605-cq8725s-soc-id-v1-1-bb1ef93de649@gmail.com
@@ -521,6 +606,9 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/ROCKNIX/distribution/blob/b1e9d07b251c5a013d303a518106c547db001b74/projects/ROCKNIX/devices/SM8750/patches/linux/0075-arm64-dts-qcom-sm8750-add-CPU-thermal-cooling.patch
   upstream: unknown
   notes: Linux 7.2 supplies the CPU cooling-cell properties; Armada retains the missing passive trips and cooling maps.
+- `patches/0556a-arm64-dts-qcom-sm8750-add-the-soccp.patch`
+  source: armada
+  upstream: local
 - `patches/0049-drm-msm-a8xx-add-adreno-830-catalog.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8750/patches/linux/0049-drm-msm-a8xx-add-adreno-830-catalog.patch
   upstream: unknown
@@ -540,9 +628,6 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0043-power-sequencing-qcom-wcn-add-support-for-WCN7860.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8750/patches/linux/0043-power-sequencing-qcom-wcn-add-support-for-WCN7860.patch
   upstream: unknown
-- `patches/0044-clk-qcom-gcc-sm8750-Do-not-turn-off-PCIe-GDSCs-durin.patch`
-  source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8750/patches/linux/0044-clk-qcom-gcc-sm8750-Do-not-turn-off-PCIe-GDSCs-durin.patch
-  upstream: https://lore.kernel.org/r/20260102-pci_gdsc_fix-v1-3-b17ed3d175bc@oss.qualcomm.com
 - `patches/0045-Bluetooth-qca-add-WCN7860-support.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8750/patches/linux/0045-Bluetooth-qca-add-WCN7860-support.patch
   upstream: unknown
@@ -580,7 +665,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0075-ASoC-wsa884x-preserve-Pocket-S2-compander-gain.patch`
   source: armada
   upstream: local
-  notes: AYANEO Pocket S2-only fix. The WSA884x amplifier's POST_PMU sequence selects the SoundWire compander, but the unmute path immediately overrode it with the fixed CSR gain, discarding the board's matched compander plus digital-volume configuration. The driver now keeps the compander selection when its port is enabled, gated on the `ayaneo,pocket-s2` machine compatible so every other WSA884x machine keeps the original fixed-gain behavior. Scoped to the Armada distribution; not a Linux upstream submission.
+  notes: AYANEO Pocket S2, Pocket DS and KONKR Pocket FIT fix. The WSA884x amplifier's POST_PMU sequence selects the SoundWire compander, but the unmute path immediately overrode it with the fixed CSR gain, discarding the boards' matched compander plus digital-volume configuration. The driver now keeps the compander selection when its port is enabled, gated on the `ayaneo,pocket-s2`, `ayaneo,pocketds` and `konkr,pocket-fit` machine compatibles, so every other WSA884x machine keeps the original fixed-gain behavior. This requires a matching UCM that enables both macro companders, initializes both PA controls to 17 (hardware gain index 14, unity), and uses digital volume. Scoped to the Armada distribution; not a Linux upstream submission.
 - `patches/0612-ROCKNIX-odin3-q6apm-start-mi2s-port-at-prepare.patch`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8550/patches/linux/0612-ROCKNIX-odin3-q6apm-start-mi2s-port-at-prepare.patch
   upstream: unknown
@@ -591,13 +676,23 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0528-ASoC-qcom-sc8280xp-suspend-the-card-and-its-streams.patch`
   source: armada
   upstream: local
+- `patches/0538-ASoC-qcom-sc8280xp-cap-Pocket-DS-speaker-digital-volume.patch`
+  source: armada
+  upstream: local
+  notes: AYANEO Pocket DS only. With the compander speaker path from `0075`, the speakers audibly distorted at WSA RX digital volume 73 and were clean at 71 across the bass, hot-master and vocal test clips, so the upstream limit of 81 is lowered to 71 on this board. A peak limiter in userspace could allow a higher cap later.
 - `patches/0529-ASoC-qdsp6-q6apm-fail-the-graph-open-when-the-DSP-rejects-it.patch`
   source: armada
   upstream: local
 - `patches/0530-ASoC-qdsp6-release-AudioReach-graphs-across-system-suspend.patch`
   source: armada
   upstream: local
+- `patches/0531-ASoC-qcom-sc8280xp-release-the-board-i2s-clock-across-system-suspend.patch`
+  source: armada
+  upstream: local
 - `patches/0532-hwmon-pwm-fan-optionally-run-the-fan-while-charging-in-s2idle.patch`
+  source: armada
+  upstream: local
+- `patches/0540-arm64-signal-reapply-the-ssbs-policy-on-sigreturn.patch`
   source: armada
   upstream: local
 - `patches/0618-drm-msm-dp-dont-fail-audio-prepare-when-display-off.patch`
@@ -605,6 +700,15 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   upstream: unknown
   notes: Imported unchanged from the linked ROCKNIX pull request.
 - `patches/0619-drm-msm-map-submitqueue-priority-onto-high-low.patch`
+  source: armada
+  upstream: local
+- `patches/0620-drm-msm-a6xx-hfi-irq-clears-only-the-cm3-fault.patch`
+  source: https://github.com/kettlelinux/kettlelinux/blob/d379ae1d0efeb8dd282647a1598efd719c6ecd4d/kernel/patches/40-kettle/1350-drm-msm-a6xx-hfi-irq-clears-only-the-cm3-fault.patch
+  upstream: unknown
+- `patches/0621-drm-msm-a6xx-bound-the-gmu-wait-for-a-fault-devcoredump.patch`
+  source: https://github.com/kettlelinux/kettlelinux/blob/d379ae1d0efeb8dd282647a1598efd719c6ecd4d/kernel/patches/40-kettle/1351-drm-msm-a6xx-bound-the-gmu-wait-for-a-fault-devcoredump.patch
+  upstream: unknown
+- `patches/0622-drm-msm-a6xx-mask-the-hfi-interrupt-before-booting-the-gmu.patch`
   source: armada
   upstream: local
 - `dts/qcs8550-ayaneo-pocketace.dts`
@@ -645,15 +749,21 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8650/linux/dts/qcom/sm8650-konkr-pf.dts
 - `dts/sm8250-retroidpocket-common.dtsi`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8250/linux/dts/qcom/sm8250-retroidpocket-common.dtsi
+- `dts/sm8250-ayaneo-pocket-micro2.dts`
+  source: armada
+  notes: Board file for the AYANEO Pocket MICRO 2; fan is left to armada-powerd (no thermal-zone include).
 - `dts/sm8250-ayn-thorlite.dts`
   source: https://github.com/ROCKNIX/distribution/blob/dbea089dd83e156babbbcabc677117cef08f1148/projects/ROCKNIX/devices/SM8250/linux/dts/qcom/sm8250-ayn-thorlite.dts
   notes: Imported verbatim from ROCKNIX; SHA-256 `62a06545c46fe052c69699c20c8c6b330c4b64a3ecdb6b5ba99420868a78597d`. Authored by Philippe Simons; retains the original BSD-3-Clause SPDX identifier and Retroid Pocket copyright notice.
 - `dts/sm8250-ayn-thorlite.dts.patch`
   source: armada
-  notes: Armada removes the kernel touchscreen coordinate transforms after copying `dts/sm8250-ayn-thorlite.dts`; Gamescope/libinput maps the native digitizer coordinates to the rotated outputs, and applying both transforms makes the right edge behave as the top edge. This matches Armada's full Thor handling.
+  notes: Armada removes the kernel touchscreen coordinate transforms after copying `dts/sm8250-ayn-thorlite.dts`; Gamescope/libinput maps the native digitizer coordinates to the rotated outputs, and applying both transforms makes the right edge behave as the top edge. This matches Armada's full Thor handling. Also enables the AYN button.
 - `dts/sm8250-mangmi-air-y-pro.dts`
   source: https://github.com/ROCKNIX/distribution/blob/807c74fc46c124891d8aa9b57a68533d38e9a6b2/projects/ROCKNIX/devices/SM8250/linux/dts/qcom/sm8250-mangmi-air-y-pro.dts
   notes: Imported verbatim from ROCKNIX; SHA-256 `d98f1104f4fe29f9bf8c94692beb491e840332a851f1f6994f015973ba24c018`.
+- `dts/sm8250-mangmi-air-y-pro.dts.patch`
+  source: armada
+  notes: Exposes the two centre-logo RGB LEDs on left AW20036 channels 24–29, verified on Air Y Pro hardware.
 - `dts/sm8250-mangmi-pocket-max.dts`
   source: https://github.com/ROCKNIX/distribution/blob/807c74fc46c124891d8aa9b57a68533d38e9a6b2/projects/ROCKNIX/devices/SM8250/linux/dts/qcom/sm8250-mangmi-pocket-max.dts
   notes: Imported verbatim from ROCKNIX; SHA-256 `f6128a97cf510fcd9ecf568a2e512c3f6f4210ad43e4fb1f542740f4b140dfd2`.
@@ -678,7 +788,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8750/linux/dts/qcom/sm8750-konkr-pf-elite.dts
 - `dts/sm8750-konkr-pf-elite.dts.patch`
   source: armada
-  notes: Armada adapts the Elite touchscreen node to the full ROCKNIX Chipone fork shared with the SM8650 Pocket FIT, keeps volume-up from waking the system, and adds the DisplayPort playback link required for USB-C DP Alt Mode audio; the touchscreen driver is selected only by those two device-tree nodes. Armada also marks PCIe WAKE# active-low and idles the codec rails in LPM during s2idle.
+  notes: Armada adapts the Elite touchscreen node to the full ROCKNIX Chipone fork shared with the SM8650 Pocket FIT, keeps volume-up from waking the system, and adds the DisplayPort playback link required for USB-C DP Alt Mode audio; the touchscreen driver is selected only by those two device-tree nodes. Armada also marks PCIe WAKE# active-low and idles the codec rails in LPM during s2idle, and points the SoCCP remoteproc at the Elite's own firmware.
 - `dts/cq8725s-ayn-common.dtsi`
   source: https://github.com/ROCKNIX/distribution/blob/bcf3b5bc574990b96543484575b06f912153a715/projects/ROCKNIX/devices/SM8750/patches/linux/0046-arm64-dts-qcom-Add-AYN-CQ8725S-Common.patch
   notes: Armada extracted this DTS from the cited ROCKNIX patch and then applied later ROCKNIX DTS updates, including the Odin 3 haptics nodes from ROCKNIX commit `81a31e3d0f`.
@@ -690,7 +800,7 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   notes: Armada enables DPU dithering and codec-rail LPM sleep states after copying `dts/cq8725s-ayn-odin3.dts`.
 - `dts/cq8725s-ayn-common.dtsi.patch`
   source: armada
-  notes: Armada keeps volume-up from waking the system, marks Odin 3's RSInput node as connected to the Qualcomm haptics device, supplies the device's 1024 range, and marks PCIe WAKE# active-low. The 70-count `axis-deadzone` (an unmeasured ROCKNIX bring-up value) was dropped; like the RP6 and every other RSInput device the Odin 3 now passes its stick value through, leaving deadzone policy to Steam Input and the game.
+  notes: Armada keeps volume-up from waking the system, marks Odin 3's RSInput node as connected to the Qualcomm haptics device, supplies the device's 1024 range, marks PCIe WAKE# active-low, and keeps the four switched WCN7860 PMU supply rails always-on because re-enabling them at resume can hang the SoC. The 70-count `axis-deadzone` (an unmeasured ROCKNIX bring-up value) was dropped; like the RP6 and every other RSInput device the Odin 3 now passes its stick value through, leaving deadzone policy to Steam Input and the game.
 - `dts/qcs8550-ayaneo-pocket-common.dtsi.patch`
   source: armada
   notes: Armada keeps volume-up from waking the system, removes the SDHCI capability mask, marks PCIe WAKE# active-low, and idles the codec rail in LPM during s2idle after copying `dts/qcs8550-ayaneo-pocket-common.dtsi`.
@@ -715,24 +825,30 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `dts/qcs8550-ayn-common.dtsi.patch`
   source: armada
   notes: Armada keeps volume-up from waking the system, removes the SDHCI capability mask, and marks the shared RSInput node as connected to the PM8550B haptics device declared in the same common tree; this covers the AYN and Retroid products that inherit both nodes, including Pocket 6 and Nova. Armada also marks PCIe WAKE# active-low, idles the codec rails in LPM during s2idle, and powers RSInput from `vdd_mcu_3v3` instead of the shared `vreg_bob2`, without always-on, so the driver can cut the MCU in suspend.
+- `dts/qcs8550-ayn-odin2.dts.patch`
+  source: armada
+  upstream: local
 - `dts/qcs8550-ayn-odin2portal.dts.patch`
   source: armada
   notes: Adds the back buttons from the Odin 2 DTS into the Odin 2 Portal DTS
 - `dts/qcs8550-retroidpocket-rp6.dts.patch`
   source: armada
-  notes: Armada switches Pocket 6 from ROCKNIX's Odin 2 fallback to audio firmware extracted from a Pocket 6 vendor image.
+  notes: Armada switches Pocket 6 from ROCKNIX's Odin 2 fallback to audio firmware extracted from a Pocket 6 vendor image, and drives its haptics actuator as an LRA with the stock Android values (board-id 0x1001f overlay) instead of the inherited Odin 2 ERM config.
+- `dts/qcs8550-retroidpocket-rpnova.dts.patch`
+  source: armada
+  notes: Armada disables the inherited Pocket 6 PWM backlight and removes its panel reference so Nova uses its panel driver’s DSI backlight.
 - `dts/qcs8550-ayn-thor.dts.patch`
   source: armada
   notes: Armada fixes the hall-sensor pinctrl, makes only the lid-open edge wake, corrects touch orientation, and enables DPU dithering on the top panel after copying `dts/qcs8550-ayn-thor.dts`.
 - `dts/sm8650-ayaneo-common.dtsi.patch`
   source: armada
-  notes: Armada keeps volume-up from waking the system, wires the upstream SY7758 driver, marks PCIe WAKE# active-low, and idles the codec rails in LPM during s2idle after copying `dts/sm8650-ayaneo-common.dtsi`.
+  notes: Armada keeps volume-up from waking the system, wires the upstream SY7758 driver, marks PCIe WAKE# active-low, idles the codec rails in LPM during s2idle, and keeps the RTC offset in an SDAM cell with the alarm enabled after copying `dts/sm8650-ayaneo-common.dtsi`.
 - `dts/sm8650-ayaneo-ps2.dts.patch`
   source: armada
   notes: Armada selects the accepted Pocket S2 WSA2 sound-card mapping after copying the ROCKNIX DTS.
 - `dts/sm8650-konkr-pf.dts.patch`
   source: armada
-  notes: Armada selects the shared WSA2 channel mapping through a Pocket FIT-specific sound-card compatible.
+  notes: Armada selects the shared WSA2 channel mapping through a Pocket FIT-specific sound-card compatible and binds `konkr_sysbtn` to the controller MCU UART.
 
 - `patches/0505-arm64-emulate-unaligned-atomics.patch`
   source: https://github.com/bylaws/linux/commit/7ae989a43ae7e3cb8007ac21c28dacc24c9d8320
@@ -745,10 +861,6 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: armada
   upstream: local
   notes: Lets userspace keep a charge-indicator pattern lit on the HTR3212 stick LEDs through system suspend.
-- `patches/0522a-PCI-host-common-keep-root-port-d3cold-veto-for-suspend-to-ram.patch`
-  source: armada
-  upstream: local
-  notes: Keeps 0522's endpoint-only D3cold rule for s2idle but restores the root-port veto for suspend-to-RAM: with the controller off, nothing keeps a DDR vote through PSCI system suspend and the RP6 never resumes from deep.
 - `patches/0533-hwmon-pwm-fan-optional-static-pwm-across-suspend.patch`
   source: armada
   upstream: local
@@ -768,3 +880,43 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `dts/qcs8550-retroidpocket-rp6-suspend.dts.patch`
   source: armada
   notes: Marks the HTR3212 controllers always-on and drops regulator-off-in-suspend from vdd_fan_5v0, for the charge indicator (0030a) and the fan floor (0533) in suspend-to-RAM.
+- `patches/0557-ASoC-codecs-lpass-wsa-macro-switch-to-pm-clock-framework.patch`
+  source: https://git.kernel.org/torvalds/c/cd054a6e272caa97ab808ef6f5588749a1429108
+  upstream: https://patch.msgid.link/20260702-xo-sd-codec-v7-b4-v8-1-d39d0fdb7859@oss.qualcomm.com
+- `patches/0558-ASoC-codecs-lpass-va-macro-switch-to-pm-clock-framework.patch`
+  source: https://git.kernel.org/torvalds/c/eb667d0fbdd38d5a800b9e7aafc9a6c14530b9bf
+  upstream: https://patch.msgid.link/20260702-xo-sd-codec-v7-b4-v8-2-d39d0fdb7859@oss.qualcomm.com
+- `patches/0559-ASoC-codecs-lpass-wsa-macro-use-devm-clk-hw-register-for-mclk.patch`
+  source: https://git.kernel.org/torvalds/c/541735571578b84987868c5662089f73bac36895
+  upstream: https://patch.msgid.link/20260702-xo-sd-codec-v7-b4-v8-3-d39d0fdb7859@oss.qualcomm.com
+- `patches/0560-ASoC-codecs-lpass-tx-macro-switch-to-pm-clock-framework.patch`
+  source: https://git.kernel.org/torvalds/c/b9b23e72abef91ab4689f1467cefc2517042ab26
+  upstream: https://patch.msgid.link/20260707-xo-sd-codec-tx-rx-v2-1-f61b4622f97f@oss.qualcomm.com
+- `patches/0561-ASoC-codecs-lpass-rx-macro-switch-to-pm-clock-framework.patch`
+  source: https://git.kernel.org/torvalds/c/b05482e7ce1b110f86b08a99768ac41e4c9e4dfa
+  upstream: https://patch.msgid.link/20260707-xo-sd-codec-tx-rx-v2-2-f61b4622f97f@oss.qualcomm.com
+- `patches/0562-ASoC-codecs-lpass-tx-rx-macro-check-clk-set-rate-return-value.patch`
+  source: https://git.kernel.org/torvalds/c/b8ca90fafe6adc401601f91d1394ba76bacf67ed
+  upstream: https://patch.msgid.link/20260707-xo-sd-codec-tx-rx-v2-3-f61b4622f97f@oss.qualcomm.com
+- `patches/0563-ASoC-codecs-lpass-macro-force-runtime-suspend-across-system-sleep.patch`
+  source: armada
+  upstream: local
+- `patches/0564-soundwire-qcom-force-runtime-suspend-across-system-sleep.patch`
+  source: armada
+  upstream: local
+- `patches/0565-pinctrl-qcom-sm8650-lpass-lpi-force-runtime-suspend-across-system-sleep.patch`
+  source: armada
+  upstream: local
+
+- `patches/1021-wifi-ath12k-fix-single-pdev-frequency-ranges.patch`
+  source: https://lore.kernel.org/r/20260715065218.41232-1-gsh20040816@gmail.com
+  upstream: https://lore.kernel.org/r/20260715065218.41232-1-gsh20040816@gmail.com
+  notes: Backports Shenghan Gao's proposed single-pdev range fix to Linux 7.2.6. The upstream discussion identifies this as a local workaround pending a per-radio regulatory-state redesign; it is not a merged upstream architectural fix.
+- `patches/1022-wifi-ath12k-split-WCN7860-scans-by-firmware-ranges.patch`
+  source: armada
+  upstream: local
+  notes: Splits WCN7860 scans by firmware range, preserving one overall timeout and completion. Tested on KONKR Pocket FIT Elite.
+- `patches/1023-wifi-ath12k-protect-TX-during-associated-range-scans.patch`
+  source: armada
+  upstream: local
+  notes: Uses single-channel associated scans with TX draining and home-channel rest. Tested on KONKR Pocket FIT Elite.

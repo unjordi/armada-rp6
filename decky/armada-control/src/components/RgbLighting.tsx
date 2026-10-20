@@ -7,7 +7,6 @@ import {
   setRgb,
   setRgbChargeIndicatorBrightness,
   setRgbChargeIndicatorEnabled,
-  setRgbSyncBrightness,
 } from "../backend";
 import { useDebouncedApply } from "../hooks/useDebouncedApply";
 import { t } from "../i18n";
@@ -60,7 +59,6 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
   const [config, setConfig] = useState<RgbConfig | null>(null);
   const savedConfig = useRef<string>("");
   const lastUpdate = useRef<number>(0);
-  const [syncBrightnessUpdating, setSyncBrightnessUpdating] = useState(false);
   // Opt-in gate for the charge indicator shown while asleep. Not part of
   // armada-rgb's own config, so it is loaded and saved separately.
   const [chargeIndicatorEnabled, setChargeIndicatorEnabled] = useState(false);
@@ -111,12 +109,14 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
       try {
         await setRgb(
           config.enabled,
+          config.linkBrightness,
           config.color,
           config.saturation ?? 100,
+          config.maxBrightness,
           config.brightness,
           config.effect ?? "static",
           config.speed ?? 100,
-          config.sync_scale ?? null,
+          config.syncScale ?? null,
         );
         savedConfig.current = current;
       } catch (error) {
@@ -127,29 +127,6 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
 
     return () => window.clearTimeout(timer);
   }, [config, load]);
-
-  // Brightness sync has its own command, so it stays out of the debounced
-  // setRgb() cycle above: savedConfig is updated in the same tick so that
-  // effect never fires a redundant or racing setRgb() call.
-  const toggleSyncBrightness = async (enabled: boolean) => {
-    if (!config) return;
-    setSyncBrightnessUpdating(true);
-    const optimistic: RgbConfig = { ...config, sync_brightness: enabled };
-    savedConfig.current = JSON.stringify(optimistic);
-    setConfig(optimistic);
-    try {
-      const next = await setRgbSyncBrightness(enabled);
-      savedConfig.current = JSON.stringify(next);
-      setConfig(next);
-    } catch (error) {
-      const reverted: RgbConfig = { ...config, sync_brightness: !enabled };
-      savedConfig.current = JSON.stringify(reverted);
-      setConfig(reverted);
-      toaster.toast({ title: t("rgb.syncBrightnessError"), body: friendlyError(error) });
-    } finally {
-      setSyncBrightnessUpdating(false);
-    }
-  };
 
   const toggleChargeIndicator = async (enabled: boolean) => {
     setChargeIndicatorUpdating(true);
@@ -171,7 +148,6 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
   // rewriting config.effect (see lib/rgbEffects).
   const effect: RgbEffect = displayedEffect(config.effect);
   const speed: number = config.speed ?? 100;
-  const syncBrightness: boolean = !!config.sync_brightness;
   const colorDisabled: boolean = !config.enabled || !USES_BASE_COLOR.includes(effect);
   const saturationDisabled: boolean = !config.enabled || !USES_SATURATION.includes(effect);
 
@@ -181,7 +157,11 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
         <ToggleRow
           label={t("common.enabled")}
           value={config.enabled}
-          onChange={(enabled: boolean) => setConfig({ ...config, enabled })}
+          onChange={(enabled: boolean) => setConfig({
+            ...config,
+            enabled,
+            linkBrightness: enabled ? config.linkBrightness : false,
+          })}
         />
         <SelectEdit
           label={t("rgb.effect")}
@@ -191,13 +171,16 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
           onChange={(next: RgbEffect) => setConfig({ ...config, effect: next })}
         />
         <SliderEdit
-          label={t("common.brightness")}
-          value={config.brightness}
-          min={0}
+          label={config.linkBrightness ? t("rgb.maxBrightness") : t("common.brightness")}
+          value={config.linkBrightness ? config.maxBrightness : config.brightness}
+          min={config.linkBrightness ? 1 : 0}
           max={100}
           step={1}
-          disabled={!config.enabled || syncBrightness}
-          onChange={(brightness: number) => setConfig({ ...config, brightness })}
+          disabled={!config.enabled}
+          onChange={(brightness: number) => setConfig(
+            config.linkBrightness ?
+              { ...config, maxBrightness: brightness } :
+              { ...config, brightness })}
         />
         {USES_SPEED.includes(effect) && (
           <SliderEdit
@@ -234,22 +217,28 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
           onChange={(saturation: number) => setConfig({ ...config, saturation })}
         />
         <ToggleRow
-          label={t("rgb.syncBrightness")}
+          label={t("rgb.smartBrightness")}
           description={t("rgb.syncBrightnessDescription")}
-          value={syncBrightness}
-          disabled={!config.enabled || syncBrightnessUpdating}
-          onChange={toggleSyncBrightness}
+          value={config.linkBrightness}
+          disabled={!config.enabled}
+          onChange={(linkBrightness: boolean) => setConfig({
+            ...config,
+            linkBrightness,
+            maxBrightness: linkBrightness
+              ? Math.max(1, config.maxBrightness)
+              : config.maxBrightness,
+          })}
         />
-        {syncBrightness && (
+        {config.linkBrightness && (
           <SliderEdit
             label={t("rgb.syncScale")}
-            value={config.sync_scale ?? syncScaleDefault}
+            value={config.syncScale ?? syncScaleDefault}
             min={10}
             max={150}
             step={1}
             disabled={!config.enabled}
             valueSuffix="%"
-            onChange={(next: number) => setConfig({ ...config, sync_scale: next })}
+            onChange={(next: number) => setConfig({ ...config, syncScale: next })}
           />
         )}
       </PanelSection>

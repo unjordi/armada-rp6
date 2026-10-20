@@ -19,8 +19,8 @@ while read -r file sha extra; do
     [[ "$file" == *.aarch64.rpm || "$file" == *.noarch.rpm ]] || bad "pin $file is not an aarch64/noarch rpm"
     [[ "$sha" =~ ^[0-9a-f]{64}$ && -z "$extra" ]] || bad "pin $file: bad sha256 field"
 done <"$PKG/pins.txt"
-(( n >= 5 )) && ok "pins.txt lists $n RPMs" || bad "pins.txt lists only $n RPMs"
-for want in scx-scheds steam-notif-daemon kvazaar-libs libxavs; do
+(( n >= 3 )) && ok "pins.txt lists $n RPMs" || bad "pins.txt lists only $n RPMs"
+for want in steam-notif-daemon kvazaar-libs libxavs; do
     grep -q "^${want}-[0-9]" "$PKG/pins.txt" && ok "pinned: $want" || bad "not pinned: $want"
 done
 

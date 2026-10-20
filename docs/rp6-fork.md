@@ -25,7 +25,7 @@ Contents: [Kernel](#1-kernel) · [Deep suspend and dark resume](#2-deep-suspend-
 
 ## 1. Kernel
 
-**What and why.** Eight kernel-tree changes live in `packages/kernel/`, all tagged `source: armada`,
+**What and why.** Seven kernel-tree changes live in `packages/kernel/`, all tagged `source: armada`,
 `upstream: local` in `packages/kernel/PATCHES.md` (none is submitted upstream yet). They exist so that the
 RP6 can sleep in PSCI suspend-to-RAM ("deep"), charge while asleep, keep its LEDs and fan going, and wake
 only when it should.
@@ -33,7 +33,6 @@ only when it should.
 | Change | Purpose (from its patch header / `PATCHES.md`) |
 |---|---|
 | `0030a-leds-htr3212-retain-pattern-in-suspend.patch` | Adds an optional `keep_alive` sysfs attribute to the HTR3212 stick-LED controller. When set, the driver skips shutdown and regulator disable in its suspend hook, so the chip keeps driving its last PWM pattern with no CPU. |
-| `0522a-PCI-host-common-keep-root-port-d3cold-veto-for-suspend-to-ram.patch` | Keeps upstream's endpoint-only D3cold rule (`0522`) for s2idle but restores the root-port veto for suspend-to-RAM. Without it the PCIe controller is powered off in PSCI suspend, nothing keeps a DDR vote, and the RP6 never resumes from deep (3/3 hangs at `PM: suspend entry (deep)` in the patch's measurements). |
 | `0533-hwmon-pwm-fan-optional-static-pwm-across-suspend.patch` | Adds a `suspend_pwm` module parameter (default 0 = stock behaviour): a static fan duty kept across suspend-to-RAM. Userspace sets it only while charging. |
 | `0910-power-supply-qcom-battmgr-dont-hold-wakeup-source-on-routine-notifications.patch` | Registers the battmgr supplies with no wakeup source, so routine ADSP telemetry no longer blocks suspend. Replaces upstream-series `0504` (IPCC summary-irq mask), which also silenced the charger doorbell. |
 | `0911-power-supply-qcom-battmgr-wake-on-charger-attach-detach.patch` | Wakes the system only when `usb.online` / `wireless.online` actually changes (a real attach or detach). |
@@ -41,24 +40,26 @@ only when it should.
 | `dts/qcs8550-retroidpocket-rp6-suspend.dts.patch` | Marks the HTR3212 controllers always-on and drops `regulator-off-in-suspend` from `vdd_fan_5v0`, which `0030a` and `0533` need. |
 | `dts/qcs8550-retroidpocket-rp6.dts` (LED groups) | Lists each multicolor LED group's channels in red, green, blue order by their colour (the node labels are swapped against their colour). The kernel's charging trigger fills intensities by position, so the old order painted the charge colour blue-cyan. |
 
+**PCIe across suspend** is upstream's as is (`0522` endpoint-only D3cold, `0566` PCIe GDSCs `OFF_ON`, no suspend OPP floor).
+
 **Series changes.** `packages/kernel/patches/series` also disables two upstream patches, each with an
 inline reason: `0004-drm-msm-a6xx-Enable-IFPC-on-Adreno-740.patch` (on the A740, IFPC wedges the GPU after
 idle and the panel stays black) and `0504-mailbox-qcom-ipcc-mask-summary-irq-for-suspend-to-ram.patch`
 (superseded by `0910`/`0911`).
 
-**Gamescope.** `packages/gamescope/patches/0024-screenshot-thread-sched-other-not-rt.patch` moves
+**Gamescope.** `packages/gamescope/patches/0029-screenshot-thread-sched-other-not-rt.patch` moves
 gamescope's screenshot thread to `SCHED_OTHER`: under the compositor's `RLIMIT_RTTIME` budget, encoding a
 PNG of a game frame overran it and the kernel killed the whole compositor (see `packages/gamescope/PATCHES.md`).
 
 **Files (9 + 2)**
 - `packages/kernel/patches/series`, `packages/kernel/PATCHES.md`
-- `packages/kernel/patches/0030a-…`, `0522a-…`, `0533-…`, `0910-…`, `0911-…`, `0912-…`
+- `packages/kernel/patches/0030a-…`, `0533-…`, `0910-…`, `0911-…`, `0912-…`
 - `packages/kernel/dts/qcs8550-retroidpocket-rp6-suspend.dts.patch`, `packages/kernel/dts/qcs8550-retroidpocket-rp6.dts`
-- `packages/gamescope/patches/0024-screenshot-thread-sched-other-not-rt.patch`, `packages/gamescope/PATCHES.md`
+- `packages/gamescope/patches/0029-screenshot-thread-sched-other-not-rt.patch`, `packages/gamescope/PATCHES.md`
 
 **How to verify**
 - In the repo, every patch in the series exists and each fork patch is documented:
-  `grep -E '0030a|0522a|0533|0910|0911|0912|rp6-suspend' packages/kernel/patches/series packages/kernel/PATCHES.md`.
+  `grep -E '0030a|0533|0910|0911|0912|rp6-suspend' packages/kernel/patches/series packages/kernel/PATCHES.md`.
 - On the device, the kernel parameters exist: `cat /sys/module/pwm_fan/parameters/suspend_pwm` and
   `cat /sys/bus/i2c/devices/{2,3}-003c/keep_alive` (one attribute per HTR3212 controller, on its I2C device).
 - On the device, deep is advertised: `cat /sys/power/mem_sleep` shows `deep`.
@@ -141,12 +142,14 @@ On top of the kernel patches above, userspace adds:
 **What and why.** `packages/armada-rgb/` is the lighting daemon and CLI for the RP6's stick LEDs
 (HTR3212 controllers). The fork extends it with animated effects (`static`, `breathing`, `color_cycle`,
 `rainbow`, `load`, `battery`, `screen_sync` — an ambilight sampled from the screen through
-`gamescopectl screenshot`, run as the session user via `runuser`), brightness that follows the screen
-backlight, a saturation setting, a device-tuned scale for that brightness sync, and `armada-rgb run`, a
+`gamescopectl screenshot`, run as the session user via `runuser`), a saturation setting, a device-tuned
+LED-vs-panel scale (`syncScale`) on top of upstream's Smart Brightness (`linkBrightness`/`maxBrightness`;
+older `sync_brightness`/`sync_scale` configs are read by alias and keep their level), and `armada-rgb run`, a
 daemon that re-paints the saved configuration (also after resume) and reloads live when
-`/etc/armada/rgb.json` changes. `set` only paints the LEDs itself when no daemon is running (the daemon
-writes `/run/armada-rgb/daemon.pid`), so moving a UI slider does not flash the base colour before the
-effect repaints. Full CLI and effect reference: `packages/armada-rgb/README.md`.
+`/etc/armada/rgb.json` changes. The daemon is the only writer while it runs (it writes
+`/run/armada-rgb/daemon.pid`): `set` only saves, and upstream's `watch` stays up without painting, so moving a UI slider does not
+flash the base colour before the effect repaints. The backlight is read from the panel node
+(`ae94000.dsi.0`) over the generic `backlight`. Full CLI and effect reference: `packages/armada-rgb/README.md`.
 
 **Files (11 + 1)**
 - `packages/armada-rgb/src/{backend,controller,effects,lib,main,state}.rs`, `tests/controller.rs`,
@@ -167,8 +170,8 @@ effect repaints. Full CLI and effect reference: `packages/armada-rgb/README.md`.
 **What and why.** `decky/armada-control/` plus the privileged backend `system_files/usr/libexec/armada/armada-control`.
 Changes in the fork:
 
-- **RGB tab:** effect picker (reflects the saved effect), brightness-follows-screen toggle, a slider for the
-  LED-vs-screen dimming factor (`sync_scale`, 10–200 %), "show charge status while sleeping" toggle plus a
+- **RGB tab:** effect picker (reflects the saved effect), upstream's Smart Brightness toggle and maximum slider, a slider for the
+  LED-vs-screen dimming factor (`syncScale`, 10–200 %), "show charge status while sleeping" toggle plus a
   charge-indicator brightness slider (state in `/etc/armada/rgb-charge-indicator.conf`, read by hook 56).
   Slider values are sent as numbers, not formatted strings (`test/sliderValue.test.ts`).
 - **Fans tab:** battery-temperature floor on/off and a profile selector (Quiet or Aggressive); see section 5.
@@ -266,10 +269,11 @@ them in Armada Control.
   through Settings > System; `armada-update check` compares the local digest with the registry's.
 - **Monorepo packages:** `packages.yml` builds each package in `packages/` into
   `ghcr.io/<owner>/armada/pkg/<name>:<content-hash>`. On a fork it reuses upstream's published build
-  (`ghcr.io/armada-os/armada/pkg`) of an unchanged package. `pr.yml` runs `tests/*-test.sh` and builds the
-  image for pull requests without publishing.
+  (`ghcr.io/armada-os/armada/pkg`) of an unchanged package. `pr.yml` runs `tests/*-test.sh` (a test that takes
+  a built artifact as its argument, such as `lepton-split-test.sh`, is reported as SKIP) and builds the image for
+  pull requests without publishing.
 - **terra-pins:** `packages/terra-pins/` fixes the RPMs the image takes from Terra by sha256 in `pins.txt`
-  (5 pins). The image build installs them from that package and never contacts Terra, so a Terra outage or
+  (4 pins: steam-notif-daemon, two codec libraries, and scx-tools, which upstream takes from Terra live for its own scx-scheds). The image build installs them from that package and never contacts Terra, so a Terra outage or
   half-published mirror cannot break it. A package may ship its own `Containerfile.package`;
   `packages/containerfile-for.sh` selects it without changing other packages' hashes.
 - **dnf-retry:** `build_files/dnf-retry.sh` wraps `dnf5` during the build and retries only failures that
@@ -311,7 +315,7 @@ measurements and guards: [`docs/rp6-slim.md`](rp6-slim.md). Code: `build_files/7
 | `ARMADA_SUSPEND_MODE` | `deep` | Default suspend mode; also marks the model as validated for deep (`docs/deep-suspend-fleet-gate.md`). Overridable by `suspend_mode=` in `/etc/armada/sleep.conf`. |
 | `ARMADA_DARK_RESUME` | `1` | Enables dark resume (section 2). Kill switch: `dark_resume=0` in `sleep.conf`. |
 | `ARMADA_UI_TOPBAR_INDICATOR_SIZE_PX`, `…_MARGIN_PX` | `16`, `6` | Size and margin of the power-profile glyph in the Steam top bar. |
-| `ARMADA_RGB_SYNC_SCALE` | `0.88` | Scale applied to the stick LEDs when following screen brightness. The UI slider overrides it (`sync_scale` in `rgb.json`). |
+| `ARMADA_RGB_SYNC_SCALE` | `0.88` | Scale applied to the stick LEDs when following screen brightness. The UI slider overrides it (`syncScale` in `rgb.json`). |
 | `ARMADA_PANEL_ORIENTATION`, `ARMADA_HDR_NITS` | `left`, `750` | Panel orientation and HDR peak. Upstream keys (used by other device profiles), set here for the RP6. |
 
 Other changes under `system_files/`: `etc/localtime` (symlink to `America/Mexico_City`), `etc/xdg/spectaclerc` and `etc/xdg/kglobalshortcutsrc` (F13 as the Spectacle

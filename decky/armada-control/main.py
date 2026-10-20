@@ -6,6 +6,7 @@ from armada_control.calibration import (
     end_session,
     reset_calibration_params,
     save_calibration,
+    start_recording,
 )
 from armada_control.config import build_config
 from armada_control.controller import set_controller_type
@@ -16,7 +17,6 @@ from armada_control.rgb import (
     set_rgb,
     set_rgb_charge_indicator_brightness,
     set_rgb_charge_indicator_enabled,
-    set_rgb_sync_brightness,
 )
 from armada_control.steam import compat_mapped_appids, installed_games
 from armada_control.system import (
@@ -35,6 +35,7 @@ from armada_control.system import (
     get_release_notes,
     set_keep_rollback,
     set_ssh_enabled,
+    set_swipe_gestures_enabled,
 )
 from armada_control.tweaks import load_compat_applied, save_compat_applied, save_tweaks
 from armada_control.fan_curves import (
@@ -83,6 +84,9 @@ class Plugin:
     async def save_compat_applied(self, appids, proton_default=None):
         return await asyncio.to_thread(save_compat_applied, appids, proton_default)
 
+    async def set_swipe_gestures_enabled(self, enabled):
+        return await asyncio.to_thread(set_swipe_gestures_enabled, enabled)
+
     async def set_ssh_enabled(self, enabled):
         return await asyncio.to_thread(set_ssh_enabled, enabled)
 
@@ -125,12 +129,22 @@ class Plugin:
     async def get_rgb(self):
         return await asyncio.to_thread(get_rgb)
 
-    async def set_rgb(self, enabled, color, saturation, brightness, effect=None, speed=None, sync_scale=None):
-        return await asyncio.to_thread(set_rgb, enabled, color, saturation, brightness, effect, speed, sync_scale)
-
-    # A separate toggle, not part of set_rgb: it combines with any effect.
-    async def set_rgb_sync_brightness(self, enabled):
-        return await asyncio.to_thread(set_rgb_sync_brightness, enabled)
+    async def set_rgb(
+        self, enabled, link_brightness, color, saturation, max_brightness, brightness,
+        effect=None, speed=None, sync_scale=None,
+    ):
+        return await asyncio.to_thread(
+            set_rgb,
+            enabled,
+            link_brightness,
+            color,
+            saturation,
+            max_brightness,
+            brightness,
+            effect,
+            speed,
+            sync_scale,
+        )
 
     # Opt-in gate for the charge indicator shown while asleep; applies
     # immediately and is not part of armada-rgb's own config.
@@ -155,8 +169,11 @@ class Plugin:
     async def get_controller_state(self):
         return await asyncio.to_thread(controller_state)
 
-    async def save_calibration(self, capture):
-        return await asyncio.to_thread(save_calibration, capture)
+    async def start_calibration_recording(self):
+        return await asyncio.to_thread(start_recording)
+
+    async def save_calibration(self):
+        return await asyncio.to_thread(save_calibration)
 
     async def reset_calibration(self):
         return await asyncio.to_thread(reset_calibration_params)

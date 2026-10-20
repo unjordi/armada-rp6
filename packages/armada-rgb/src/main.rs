@@ -1,8 +1,12 @@
 //! Command line interface for RGB lighting.
 
 use anyhow::Result;
-use armada_rgb::{ColorCorrection, Controller, Effect, EffectState, LightingConfig, ScreenSyncProbe};
+use armada_rgb::{
+    watch_brightness, ColorCorrection, Controller, Effect, EffectState, LightingConfig,
+    ScreenSyncProbe,
+};
 use clap::{Parser, Subcommand};
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -19,6 +23,15 @@ enum Command {
     Get,
     /// Set a solid color and brightness.
     Set {
+        /// Whether the RGB lighting is enabled.
+        #[arg(long, action = clap::ArgAction::Set)]
+        enabled: Option<bool>,
+        /// Link RGB brightness to screen brightness.
+        #[arg(long, action = clap::ArgAction::Set)]
+        link_brightness: Option<bool>,
+        /// Maximum RGB brightness while screen linking is enabled.
+        #[arg(long)]
+        max_brightness: Option<u8>,
         #[arg(long)]
         color: String,
         #[arg(long)]
@@ -46,12 +59,22 @@ enum Command {
     Off,
     /// Apply the saved configuration.
     Apply,
+    /// Watch display brightness and reapply linked RGB brightness when it changes.
+    Watch {
+        /// Polling interval in milliseconds.
+        #[arg(long, default_value_t = 200)]
+        interval_ms: u64,
+    },
+    /// Turn MCU-driven lights off without saving.
+    Sleep,
+    /// Restore saved lighting after sleep on MCU-driven backends.
+    Wake,
     /// Run the lighting daemon: keep the saved configuration painted, animate
     /// the selected effect, and reload live when the config changes.
     Run,
     /// Toggle brightness-follows-screen-backlight as a MODIFIER on top of
     /// whatever color/effect is already configured — not a replacement
-    /// effect. Persists (`sync_brightness` in the saved configuration) and
+    /// effect. Persists (`linkBrightness` in the saved configuration) and
     /// takes effect on `run`'s next tick (at most ~1s later) without
     /// touching color/effect/brightness.
     SyncBrightness {
@@ -72,7 +95,8 @@ enum Command {
 
 #[derive(Subcommand)]
 enum SyncBrightnessState {
-    /// Scale the painted brightness by the live screen backlight percentage.
+    /// Scale the painted brightness by the live screen backlight percentage,
+    /// with the current brightness as the ceiling.
     On,
     /// Use the configured brightness as-is (the default).
     Off,
@@ -97,6 +121,9 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
         Command::Set {
+            enabled,
+            link_brightness,
+            max_brightness,
             color,
             saturation,
             brightness,
@@ -106,7 +133,13 @@ fn main() -> Result<()> {
             sync_scale,
         } => {
             let mut config: LightingConfig = controller.get()?;
-            config.enabled = true;
+            config.enabled = enabled.unwrap_or(true);
+            if let Some(link_brightness) = link_brightness {
+                config.link_brightness = link_brightness;
+            }
+            if let Some(max_brightness) = max_brightness {
+                config.max_brightness = max_brightness;
+            }
             config.color = color;
 
             if let Some(saturation) = saturation {
@@ -148,7 +181,11 @@ fn main() -> Result<()> {
         }
         Command::SyncBrightness { state } => {
             let mut config: LightingConfig = controller.get()?;
-            config.sync_brightness = matches!(state, SyncBrightnessState::On);
+            config.link_brightness = matches!(state, SyncBrightnessState::On);
+            if config.link_brightness {
+                // Keep the painted level: the current brightness becomes the ceiling.
+                config.max_brightness = config.brightness.max(1);
+            }
             let config: LightingConfig = controller.set(config)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
@@ -176,6 +213,16 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Watch { interval_ms } => {
+            if interval_ms == 0 {
+                anyhow::bail!("watch polling interval must be greater than zero");
+            }
+            if controller.is_supported() {
+                watch_brightness(&controller, Duration::from_millis(interval_ms))?;
+            }
+        }
+        Command::Sleep => controller.sleep()?,
+        Command::Wake => controller.wake()?,
     }
     Ok(())
 }

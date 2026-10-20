@@ -23,8 +23,7 @@ SESSION_SOCKET = Path(armada_perf.SESSION_SOCKET)
 ABL_VERSION_TOOL = "/usr/lib/armada/abl-version"
 RGB_TOOL = "/usr/bin/armada-rgb"
 # Effects accepted by `armada-rgb set --effect`. Brightness sync is not an
-# effect: it is the separate `sync-brightness on|off` command below and
-# combines with any effect here.
+# effect: it is `linkBrightness` and combines with any effect here.
 RGB_EFFECTS = ("static", "breathing", "color_cycle", "rainbow", "load", "battery", "screen_sync")
 # Whether the suspend hook (56-armada-rgb-suspend-charging) shows the
 # charge-indicator pattern while asleep. Opt-in, default off. Owned by this
@@ -53,6 +52,7 @@ CONTROLLER_TYPES = {"deck-uhid", "xbox-series", "xb360", "ds5"}
 INTERCEPT_MODES = {"overlay", "reset"}
 ARMADA_POWER_TOOL = "/usr/bin/armada-power"
 POWER_PROFILE_NAMES = ("eco", "balanced", "performance")
+SWIPE_GESTURES_CONFIG = Path("/etc/armada/swipe-gestures.conf")
 SLEEP_CONFIG = Path("/etc/armada/sleep.conf")
 SUSPEND_MODE_KEY = "suspend_mode"
 NM_IGNORE_SLEEP = Path("/etc/NetworkManager/ignore-sleep")
@@ -69,6 +69,7 @@ DESKTOP_SESSION_FOR_MODE = {
 SLEEP_MODE_LABELS = {"s2idle": "Native", "deep": "Deep", "fake": "Fake"}
 BOTTOM_SCREEN_SERVICE = "armada-bottom-screen.service"
 GAME_MODE_SERVICE = "gamescope-session-plus@steam.service"
+PLASMA_SESSION = "/usr/libexec/armada/armada-plasma-session"
 BOTTOM_SCREEN_BRIGHTNESS_PATH = Path("/etc/armada/bottom-screen-brightness")
 BOTTOM_SCREEN_BRIGHTNESS_RESTORE_INTERVAL = 2
 BACKLIGHT_ROOT = Path("/sys/class/backlight")
@@ -289,6 +290,13 @@ def steamosctl(*args, timeout=10):
     return result.stdout.strip()
 
 
+def start_bottom_screen():
+    subprocess.run(
+        session_user_command(PLASMA_SESSION, "--start-bottom"),
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+    )
+
+
 def bottom_screen_enabled():
     return session_systemctl(
         "is-enabled", "--quiet", BOTTOM_SCREEN_SERVICE, check=False, timeout=5,
@@ -500,6 +508,52 @@ def action_set_sleep_mode(request):
     return {"value": value}
 
 
+def action_get_swipe_gestures_enabled(request):
+    try:
+        lines = SWIPE_GESTURES_CONFIG.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return {"enabled": True}
+    enabled = True
+    for line in lines:
+        match = re.fullmatch(r"\s*enabled\s*=\s*([01])\s*", line)
+        if match:
+            enabled = match.group(1) == "1"
+    return {"enabled": enabled}
+
+
+def gamescope_swipe_gestures(enabled):
+    # A valueless convar call resets it; use help to check support instead.
+    for args in (("help",), ("enable_touch_gestures", str(int(enabled)))):
+        result = subprocess.run(
+            session_user_command(
+                "GAMESCOPE_WAYLAND_DISPLAY=gamescope-primary",
+                "/usr/bin/gamescopectl", *args,
+            ),
+            check=True, capture_output=True, text=True, timeout=5,
+        )
+        if args == ("help",) and not re.search(
+            r"\benable_touch_gestures:", result.stdout + result.stderr,
+        ):
+            raise RuntimeError("Gamescope does not support the swipe gesture setting")
+
+
+def action_set_swipe_gestures_enabled(request):
+    enabled = request.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ValueError("invalid swipe gestures enabled state")
+    previous = action_get_swipe_gestures_enabled({})["enabled"]
+    active = session_systemctl("is-active", "--quiet", GAME_MODE_SERVICE, check=False, timeout=5)
+    if active.returncode == 0:
+        gamescope_swipe_gestures(enabled)
+    try:
+        atomic_write(SWIPE_GESTURES_CONFIG, f"enabled={int(enabled)}\n")
+    except Exception:
+        if active.returncode == 0:
+            gamescope_swipe_gestures(previous)
+        raise
+    return {"enabled": enabled}
+
+
 def action_set_abl_auto_enabled(request):
     atomic_write(ABL_CONFIG, f"auto_update_enabled={int(bool(request.get('enabled')))}\n")
     return {"enabled": abl_auto_enabled()}
@@ -542,11 +596,7 @@ def action_set_bottom_screen_enabled(request):
 
     if enabled:
         session_systemctl("enable", BOTTOM_SCREEN_SERVICE)
-        game_mode = session_systemctl(
-            "is-active", "--quiet", GAME_MODE_SERVICE, check=False, timeout=5,
-        )
-        if game_mode.returncode == 0:
-            session_systemctl("start", BOTTOM_SCREEN_SERVICE)
+        start_bottom_screen()
     else:
         session_systemctl("disable", "--now", BOTTOM_SCREEN_SERVICE)
 
@@ -575,9 +625,15 @@ def run_rgb(command):
     # Turn low-level subprocess/parse failures into a message the UI can show
     # as-is instead of a bare "Python Exception" toast. Each branch says what
     # broke so it's actionable without opening a shell.
+    environment = os.environ.copy()
+    try:
+        environment.update(device_env())
+    except (OSError, subprocess.SubprocessError):
+        pass
     try:
         output = subprocess.check_output(
             [RGB_TOOL, *command], text=True, timeout=5, stderr=subprocess.PIPE,
+            env=environment,
         )
     except FileNotFoundError:
         raise RuntimeError("armada-rgb is not installed on this device")
@@ -612,12 +668,28 @@ def action_set_rgb(request):
     enabled = request.get("enabled")
     if not isinstance(enabled, bool):
         raise ValueError("invalid RGB enabled state")
-    if not enabled:
+    # Keep the legacy off payload working while callers migrate to the full
+    # RGB settings payload.
+    if not enabled and not any(
+        key in request
+        for key in ("linkBrightness", "color", "saturation", "maxBrightness", "brightness")
+    ):
         return run_rgb(["off"])
-
+    link_brightness = request.get("linkBrightness")
     color = request.get("color")
     saturation = request.get("saturation")
     brightness = request.get("brightness")
+    max_brightness = request.get("maxBrightness")
+    if link_brightness is not None and not isinstance(link_brightness, bool):
+        raise ValueError("invalid RGB screen-link state")
+    if max_brightness is not None:
+        valid_max_brightness = (
+            isinstance(max_brightness, int)
+            and not isinstance(max_brightness, bool)
+            and 0 <= max_brightness <= 100
+        )
+        if not valid_max_brightness:
+            raise ValueError("invalid RGB maximum brightness")
     valid_color = (
         isinstance(color, str)
         and len(color) == 6
@@ -641,7 +713,16 @@ def action_set_rgb(request):
     if not valid_brightness:
         raise ValueError("invalid RGB brightness")
 
-    command = ["set", "--color", color]
+    command = [
+        "set",
+        "--enabled",
+        str(enabled).lower(),
+    ]
+    if link_brightness is not None:
+        command.extend(["--link-brightness", str(link_brightness).lower()])
+    if max_brightness is not None:
+        command.extend(["--max-brightness", str(max_brightness)])
+    command.extend(["--color", color])
     if saturation is not None:
         command.extend(["--saturation", str(saturation)])
     command.extend(["--brightness", str(brightness)])
@@ -663,7 +744,7 @@ def action_set_rgb(request):
             raise ValueError("invalid RGB speed")
         command += ["--speed", str(speed)]
 
-    sync_scale = request.get("sync_scale")
+    sync_scale = request.get("syncScale")
     if sync_scale is not None:
         valid_scale = sync_scale == "default" or (
             isinstance(sync_scale, int)
@@ -675,16 +756,6 @@ def action_set_rgb(request):
         command += ["--sync-scale", str(sync_scale)]
 
     return run_rgb(command)
-
-
-def action_set_rgb_sync_brightness(request):
-    # A separate toggle, not an --effect value: it combines with any effect.
-    if not rgb_supported():
-        raise RuntimeError("RGB lighting is not supported on this device")
-    enabled = request.get("enabled")
-    if not isinstance(enabled, bool):
-        raise ValueError("invalid RGB sync_brightness state")
-    return run_rgb(["sync-brightness", "on" if enabled else "off"])
 
 
 def read_rgb_charge_indicator():
@@ -773,6 +844,19 @@ def action_inputplumber_intercept(request):
     if mode not in INTERCEPT_MODES:
         raise ValueError("invalid intercept mode")
     run(["/usr/libexec/armada/inputplumber-intercept", mode], timeout=5)
+    return {"ok": True}
+
+
+def unit_active(unit):
+    return subprocess.run(["/usr/bin/systemctl", "is-active", "--quiet", unit], check=False, timeout=2).returncode == 0
+
+
+def action_reload_input_ranges(_request):
+    # InputPlumber reads evdev ranges only when it opens the controller.
+    if unit_active("inputplumber.service"):
+        run(["/usr/bin/systemctl", "restart", "inputplumber.service"], timeout=10)
+        # Joins the start job the restart queued, so this returns once the controller type is applied.
+        run(["/usr/bin/systemctl", "start", "armada-controller-type.service"], timeout=15)
     return {"ok": True}
 
 
@@ -968,6 +1052,8 @@ def action_restart_game_mode(request):
 
 
 ACTIONS = {
+    "get_swipe_gestures_enabled": action_get_swipe_gestures_enabled,
+    "set_swipe_gestures_enabled": action_set_swipe_gestures_enabled,
     "set_controller_type": action_set_controller_type,
     "get_controller_type": action_get_controller_type,
     "get_device_env": action_get_device_env,
@@ -991,9 +1077,9 @@ ACTIONS = {
     "set_sleep_mode": action_set_sleep_mode,
     "write_config": action_write_config,
     "reapply_perf": action_reapply_perf,
+    "reload_input_ranges": action_reload_input_ranges,
     "restart_game_mode": action_restart_game_mode,
     "set_power_profile": action_set_power_profile,
-    "set_rgb_sync_brightness": action_set_rgb_sync_brightness,
     "get_rgb_charge_indicator_enabled": action_get_rgb_charge_indicator_enabled,
     "set_rgb_charge_indicator_enabled": action_set_rgb_charge_indicator_enabled,
     "set_rgb_charge_indicator_brightness": action_set_rgb_charge_indicator_brightness,
