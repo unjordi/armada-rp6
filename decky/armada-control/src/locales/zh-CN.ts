@@ -294,4 +294,5 @@ export const zhCN = {
   "releaseNotes.titleNoVersion": "新功能",
   "releaseNotes.pending": "可用更新",
   "releaseNotes.installed": "已安装版本",
+  "releaseNotes.more": "还有 {count} 项",
 } as const satisfies Record<TranslationKey, string>;

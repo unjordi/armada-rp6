@@ -17,6 +17,7 @@
 #   - <commit title>
 #     <first paragraph of the commit body, on one line>
 #
+# A detail longer than 600 characters is cut at a sentence end and ends with "…".
 # Trailer lines (Co-Authored-By, Claude-Session, Rama, MR/PR, Signed-off-by) are dropped.
 set -euo pipefail
 
@@ -41,6 +42,20 @@ if [[ -n "${from}" ]] && git -C "${repo}" cat-file -e "${from}^{commit}" 2>/dev/
     range=("${from}..${to}")
 fi
 
+# Keeps a paragraph of up to 600 characters whole; a longer one is cut after the
+# last ". " that fits in 600 characters (else at the last space) and ends with "…".
+shorten() {
+    local text="$1" limit=600 head
+    if ((${#text} <= limit)); then printf '%s' "${text}"; return; fi
+    head="${text:0:limit}"
+    if [[ "${head}" == *". "* ]]; then
+        head="${head%". "*}."
+    elif [[ "${head}" == *" "* ]]; then
+        head="${head% *}"
+    fi
+    printf '%s…' "${head}"
+}
+
 # One record per commit, separated by RS (0x1e); the body is everything after the title.
 render() {
     printf '## %s\n\n' "${version}"
@@ -63,7 +78,7 @@ render() {
             para+="${para:+ }${line#"${line%%[![:space:]]*}"}"
         done <<<"${body}"
         printf -- '- %s\n' "${title}"
-        [[ -z "${para}" ]] || printf '  %s\n' "${para:0:300}"
+        [[ -z "${para}" ]] || printf '  %s\n' "$(shorten "${para}")"
     done < <(git -C "${repo}" log --first-parent --format='%B%x1e' "${range[@]}")
 }
 

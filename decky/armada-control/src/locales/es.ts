@@ -295,4 +295,5 @@ export const es = {
   "releaseNotes.titleNoVersion": "Novedades",
   "releaseNotes.pending": "Actualización disponible",
   "releaseNotes.installed": "Versión instalada",
+  "releaseNotes.more": "+{count} más",
 } as const satisfies Record<TranslationKey, string>;

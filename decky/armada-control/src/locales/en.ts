@@ -292,6 +292,7 @@ export const en = {
   "releaseNotes.titleNoVersion": "What's new",
   "releaseNotes.pending": "Available update",
   "releaseNotes.installed": "Installed version",
+  "releaseNotes.more": "+{count} more",
 } as const;
 
 export type TranslationKey = keyof typeof en;

@@ -2,7 +2,9 @@
 # Prints the release notes (markdown) of an OS image.
 #
 #   armada-release-notes current   notes baked into the booted image
-#   armada-release-notes pending   notes of the published image `armada-update check` targets
+#   armada-release-notes pending   notes of the update `armada-update check` offers (the
+#                                  published target or the staged deployment); none when the
+#                                  target is the booted image and nothing else is staged
 #
 # Exit 0 with the notes on stdout; exit 1 with empty stdout when there are none
 # or they cannot be read; exit 2 on a usage error. Diagnostics go to stderr.
@@ -15,18 +17,20 @@ ARMADA_RELEASE_NOTES_LABEL="io.armada.release-notes"
 # shellcheck disable=SC1090
 source "${ARMADA_UPDATE_LIB}" || { echo "armada-release-notes: cannot read ${ARMADA_UPDATE_LIB}" >&2; exit 1; }
 
-# Decodes the image label read from `skopeo inspect` JSON on stdin; prints the notes.
+# Decodes the notes label of `skopeo inspect` JSON read on stdin; exits 1 when
+# the label is missing, blank or corrupt.
 decode_label() {
     python3 -c '
 import base64, json, sys
 try:
-    labels = json.load(sys.stdin).get("Labels") or {}
+    image = json.load(sys.stdin)
+    labels = image.get("Labels") or {}
     text = base64.b64decode(labels.get(sys.argv[1]) or "", validate=True).decode("utf-8")
 except Exception:
     raise SystemExit(1)
 if not text.strip():
     raise SystemExit(1)
-sys.stdout.write(text if text.endswith("\n") else text + "\n")
+sys.stdout.write((text if text.endswith("\n") else text + "\n"))
 ' "${ARMADA_RELEASE_NOTES_LABEL}"
 }
 
@@ -35,12 +39,26 @@ notes_current() {
     cat -- "${ARMADA_RELEASE_NOTES_FILE}"
 }
 
+# Notes of an update that is not the booted image: the published target when it
+# differs from the booted digest, else the staged deployment. Empty and exit 1
+# when the target is the booted image and nothing different is staged.
 notes_pending() {
-    local target repository desired
+    local target repository desired b_digest s_digest s_ref image digest
     target="$(armada_update_target "$(armada_booted_ref)")" || return 1
     read -r repository desired <<<"${target}"
     [[ -n "${repository}" && -n "${desired}" ]] || return 1
-    skopeo inspect "docker://${repository}:${desired}" 2>/dev/null | decode_label
+    read -r b_digest s_digest s_ref _ <<<"$(armada_local_state)" || true
+    [[ "${b_digest:--}" != "-" ]] || return 1
+    [[ "${s_digest:--}" != "-" ]] || s_digest=""
+    [[ "${s_ref:--}" != "-" ]] || s_ref=""
+    image="$(skopeo inspect "docker://${repository}:${desired}" 2>/dev/null)" || return 1
+    digest="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("Digest") or "")' <<<"${image}" 2>/dev/null)" || return 1
+    [[ -n "${digest}" ]] || return 1
+    if [[ "${digest}" == "${b_digest}" ]]; then
+        [[ -n "${s_digest}" && "${s_digest}" != "${b_digest}" && -n "${s_ref}" ]] || return 1
+        image="$(skopeo inspect "docker://${s_ref#docker://}" 2>/dev/null)" || return 1
+    fi
+    decode_label <<<"${image}"
 }
 
 case "${1:-}" in
