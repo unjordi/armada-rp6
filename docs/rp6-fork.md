@@ -46,7 +46,7 @@ inline reason: `0004-drm-msm-a6xx-Enable-IFPC-on-Adreno-740.patch` (on the A740,
 idle and the panel stays black) and `0504-mailbox-qcom-ipcc-mask-summary-irq-for-suspend-to-ram.patch`
 (superseded by `0910`/`0911`).
 
-**Gamescope.** `packages/gamescope/patches/0024-screenshot-thread-sched-other-not-rt.patch` moves
+**Gamescope.** `packages/gamescope/patches/0029-screenshot-thread-sched-other-not-rt.patch` moves
 gamescope's screenshot thread to `SCHED_OTHER`: under the compositor's `RLIMIT_RTTIME` budget, encoding a
 PNG of a game frame overran it and the kernel killed the whole compositor (see `packages/gamescope/PATCHES.md`).
 
@@ -54,7 +54,7 @@ PNG of a game frame overran it and the kernel killed the whole compositor (see `
 - `packages/kernel/patches/series`, `packages/kernel/PATCHES.md`
 - `packages/kernel/patches/0030a-…`, `0522a-…`, `0533-…`, `0910-…`, `0911-…`, `0912-…`
 - `packages/kernel/dts/qcs8550-retroidpocket-rp6-suspend.dts.patch`, `packages/kernel/dts/qcs8550-retroidpocket-rp6.dts`
-- `packages/gamescope/patches/0024-screenshot-thread-sched-other-not-rt.patch`, `packages/gamescope/PATCHES.md`
+- `packages/gamescope/patches/0029-screenshot-thread-sched-other-not-rt.patch`, `packages/gamescope/PATCHES.md`
 
 **How to verify**
 - In the repo, every patch in the series exists and each fork patch is documented:
@@ -167,8 +167,8 @@ effect repaints. Full CLI and effect reference: `packages/armada-rgb/README.md`.
 **What and why.** `decky/armada-control/` plus the privileged backend `system_files/usr/libexec/armada/armada-control`.
 Changes in the fork:
 
-- **RGB tab:** effect picker (reflects the saved effect), brightness-follows-screen toggle, a slider for the
-  LED-vs-screen dimming factor (`sync_scale`, 10–200 %), "show charge status while sleeping" toggle plus a
+- **RGB tab:** effect picker (reflects the saved effect), upstream's Smart Brightness toggle and maximum slider, a slider for the
+  LED-vs-screen dimming factor (`syncScale`, 10–200 %), "show charge status while sleeping" toggle plus a
   charge-indicator brightness slider (state in `/etc/armada/rgb-charge-indicator.conf`, read by hook 56).
   Slider values are sent as numbers, not formatted strings (`test/sliderValue.test.ts`).
 - **Fans tab:** battery-temperature floor on/off and a profile selector (Quiet or Aggressive); see section 5.
@@ -311,7 +311,7 @@ measurements and guards: [`docs/rp6-slim.md`](rp6-slim.md). Code: `build_files/7
 | `ARMADA_SUSPEND_MODE` | `deep` | Default suspend mode; also marks the model as validated for deep (`docs/deep-suspend-fleet-gate.md`). Overridable by `suspend_mode=` in `/etc/armada/sleep.conf`. |
 | `ARMADA_DARK_RESUME` | `1` | Enables dark resume (section 2). Kill switch: `dark_resume=0` in `sleep.conf`. |
 | `ARMADA_UI_TOPBAR_INDICATOR_SIZE_PX`, `…_MARGIN_PX` | `16`, `6` | Size and margin of the power-profile glyph in the Steam top bar. |
-| `ARMADA_RGB_SYNC_SCALE` | `0.88` | Scale applied to the stick LEDs when following screen brightness. The UI slider overrides it (`sync_scale` in `rgb.json`). |
+| `ARMADA_RGB_SYNC_SCALE` | `0.88` | Scale applied to the stick LEDs when following screen brightness. The UI slider overrides it (`syncScale` in `rgb.json`). |
 | `ARMADA_PANEL_ORIENTATION`, `ARMADA_HDR_NITS` | `left`, `750` | Panel orientation and HDR peak. Upstream keys (used by other device profiles), set here for the RP6. |
 
 Other changes under `system_files/`: `etc/localtime` (symlink to `America/Mexico_City`), `etc/xdg/spectaclerc` and `etc/xdg/kglobalshortcutsrc` (F13 as the Spectacle

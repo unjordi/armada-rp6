@@ -48,7 +48,7 @@ The saturation setting applies to every effect except `screen_sync`, which
 shows the colors it captured.
 
 Brightness-follows-screen-backlight is **not** in this list — it is the
-orthogonal `sync-brightness` modifier below, which composes with *any* of
+orthogonal `linkBrightness` modifier below, which composes with *any* of
 these effects instead of replacing one.
 
 `armada-rgb run` is the lighting daemon: it keeps the saved configuration
@@ -61,43 +61,37 @@ per-LED path; other backends fall back to a uniform color.
 The versioned catalog groups exact device-tree model names with a `channels` or
 `multicolor` backend, its target list, and an optional default correction.
 
-## Brightness-follows-backlight (`sync-brightness`) — a modifier, not an effect
+## Linked brightness (`linkBrightness`) — a modifier, not an effect
 
 ```text
-armada-rgb sync-brightness on
+armada-rgb set --link-brightness true --max-brightness 60 --color FFFFFF --brightness 25
+armada-rgb sync-brightness on    # shortcut: link, with the current brightness as the ceiling
 armada-rgb sync-brightness off
 ```
 
 This is a **toggle on top of whatever color/effect is already configured**,
-not a replacement for one — it can be combined with `static`, `rainbow`,
-`breathing`, `screen_sync`, anything. When on, `run` reads
-`/sys/class/backlight/*/brightness` and `max_brightness` and scales
-whatever brightness the current effect just computed (the *configured*
-brightness for `static`, the mid-breath value for `breathing`, etc.) by that
-percentage, so dimming the screen dims the LEDs proportionally instead of
-replacing the brightness the user picked. Color is never touched. This
-happens in the one shared write path in `Controller::run` (not inside any
-single effect), so it applies uniformly regardless of which effect is active.
+not a replacement for one — it combines with `static`, `rainbow`,
+`breathing`, `screen_sync`, anything. While linked, `maxBrightness` is the
+ceiling and the painted brightness is that ceiling scaled by the screen
+backlight percentage (the mid-breath value for `breathing` scales the same
+way). Color is never touched. `run` applies it in the one shared write path
+(not inside any single effect), so it applies uniformly to every effect.
 
-Persists as `sync_brightness` in `/etc/armada/rgb.json` and takes effect on
-`run`'s next tick (at most ~1s later) without touching color, effect, or
-brightness. If more than one backlight device exists (some panels expose both
-a named node and a generic `pwm-backlight` wrapper — the Retroid Pocket 6
-exposes both `ae94000.dsi.0` and a generic `backlight`), the named one is
-preferred by default; set `ARMADA_RGB_BACKLIGHT_NAME` to pin an exact device
-name if the wrong one is picked, or `ARMADA_RGB_BACKLIGHT_ROOT` if backlight
-devices live somewhere other than `/sys/class/backlight` on a given device. If
-no backlight device can be resolved, `run` logs a one-time diagnostic and
-falls back to the configured brightness unscaled (never goes dark because of a
-missing/renamed node). That RP6 case — one named node plus the generic
-alias — is resolved unambiguously (there is exactly one non-generic
-candidate); if a device ever exposes *more than one* non-generic candidate
-(e.g. a hypothetical dual-panel device), the pick is a genuine guess and
-`run` logs a one-time diagnostic naming every candidate and which one it
-picked, rather than staying silent about it.
+The backlight is read by `display_brightness`. `ARMADA_PRIMARY_BACKLIGHT` names
+the device on systems with more than one panel; `ARMADA_BACKLIGHT_ROOT`
+overrides `/sys/class/backlight`. A generic `backlight` node next to the
+panel's own node is not a second panel: the named node wins (the Retroid
+Pocket 6 exposes `ae94000.dsi.0` and `backlight`). If the backlight cannot be
+read, `run` logs once and paints the ceiling unscaled; it never goes dark
+because of a missing node.
+
+While `run` is the painter, `set` and `watch` only save: the daemon picks the
+change up on its next tick. Saves from before `linkBrightness` existed
+(`sync_brightness`, `sync_scale`) load through aliases, and a linked one keeps
+its painted level (`maxBrightness` = its `brightness`).
 
 The user can override that factor with `armada-rgb set --sync-scale <10-200>`
-(percent; `default` goes back to the device value), saved as `sync_scale`.
+(percent; `default` goes back to the device value), saved as `syncScale`.
 
 Some LEDs read brighter than the panel at the same backlight level, so the
 scaled value is also multiplied by a per-device factor, `ARMADA_RGB_SYNC_SCALE`
@@ -187,7 +181,7 @@ For tests, the profile catalog and device model paths can be overridden with
 `ARMADA_RGB_PROFILES_PATH` and `ARMADA_RGB_MODEL_PATH`. The daemon additionally
 honors `ARMADA_RGB_CONFIG_PATH`, `ARMADA_RGB_SYSFS_ROOT`,
 `ARMADA_RGB_STAT_PATH` (CPU load source), `ARMADA_RGB_POWER_ROOT` (battery
-source), `ARMADA_RGB_BACKLIGHT_ROOT` / `ARMADA_RGB_BACKLIGHT_NAME` (screen
+source), `ARMADA_BACKLIGHT_ROOT` / `ARMADA_PRIMARY_BACKLIGHT` (screen
 backlight source), and `ARMADA_RGB_SCREENSHOT_PATH` /
 `ARMADA_RGB_GAMESCOPECTL_BIN` / `ARMADA_RGB_GAMESCOPE_XDG_RUNTIME_DIR` /
 `ARMADA_RGB_GAMESCOPE_WAYLAND_DISPLAY` / `ARMADA_RGB_SCREEN_SYNC_USER` /
