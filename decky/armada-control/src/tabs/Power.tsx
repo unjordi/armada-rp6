@@ -3,7 +3,7 @@ import { ButtonItem, Field, PanelSection } from "@decky/ui";
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { setActivePowerProfile } from "../backend";
-import { SelectEdit, SliderEdit } from "../components/widgets";
+import { ButtonRow, SelectEdit, SliderEdit } from "../components/widgets";
 import { useActivePowerProfile } from "../hooks/useActivePowerProfile";
 import { t, translateLabel } from "../i18n";
 import { friendlyError } from "../lib/errors";
@@ -110,9 +110,7 @@ export function Power({ config, setConfig }: { config: Config; setConfig: Dispat
         )}
         <SliderEdit label={t("power.gpuMin")} value={Math.round(Number(p.gpu_min || 0) * 100)} min={0} max={100} step={1} onChange={(v) => setGpuValue("gpu_min", (v / 100).toFixed(2))} />
         <SliderEdit label={t("power.gpuMax")} value={Math.round(Number(p.gpu_max || 0) * 100)} min={35} max={100} step={1} onChange={(v) => setGpuValue("gpu_max", (v / 100).toFixed(2))} />
-        <div className="armada-reset-row">
-          <ButtonItem layout="below" onClick={resetProfile}>{t("common.resetToDefault")}</ButtonItem>
-        </div>
+        <ButtonRow layout="below" onClick={resetProfile}>{t("common.resetToDefault")}</ButtonRow>
       </PanelSection>
     </>
   );

@@ -6,7 +6,8 @@ Before=display-manager.service
 [Service]
 Type=simple
 ExecCondition=/usr/bin/armada-rgb supported
-ExecStart=/usr/bin/armada-rgb run
+# armada-rgb-env exports the device keys (ARMADA_PRIMARY_BACKLIGHT, ARMADA_RGB_SYNC_SCALE).
+ExecStart=/usr/libexec/armada/armada-rgb-env run
 Restart=on-failure
 RestartSec=2
 # screen_sync captures the screen with `gamescopectl screenshot`, which needs the

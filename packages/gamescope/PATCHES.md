@@ -48,7 +48,17 @@ to a commit, or `armada` if it's original; a URL source with no `notes` is verba
   source: armada
 - `patches/0023-drm-power-down-an-idle-lease-companion-output.patch`
   source: armada
-- `patches/0024-screenshot-thread-sched-other-not-rt.patch`
+- `patches/0024-steamcompmgr-report-wayland-windows-to-steam.patch`
+  source: armada
+- `patches/0025-wlserver-pass-touch-through-to-native-wayland-windows.patch`
+  source: armada
+- `patches/0026-upscale-use-sgsr-for-sdr-fsr-requests.patch`
+  source: armada
+- `patches/0027-steamcompmgr-elapsed-time-fps-limiter.patch`
+  source: armada
+- `patches/0028-improve-frame-pacing.patch`
+  source: https://github.com/ValveSoftware/gamescope/pull/2417
+- `patches/0029-screenshot-thread-sched-other-not-rt.patch`
   source: armada
   notes: The screenshot thread (gamescope-scrsh) inherits the compositor's
   SCHED_RR policy. With an RLIMIT_RTTIME budget (200 ms on the Retroid Pocket 6,

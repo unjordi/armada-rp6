@@ -12,22 +12,22 @@ def get_rgb():
     return call("get_rgb")
 
 
-def set_rgb(enabled, color, saturation, brightness, effect=None, speed=None, sync_scale=None):
+def set_rgb(
+    enabled, link_brightness, color, saturation, max_brightness, brightness,
+    effect=None, speed=None, sync_scale=None,
+):
     return call(
         "set_rgb",
         enabled=enabled,
+        linkBrightness=link_brightness,
         color=color,
         saturation=saturation,
+        maxBrightness=max_brightness,
         brightness=brightness,
         effect=effect,
         speed=speed,
-        sync_scale=sync_scale,
+        syncScale=sync_scale,
     )
-
-
-# A separate toggle (`armada-rgb sync-brightness on|off`), not an effect.
-def set_rgb_sync_brightness(enabled):
-    return call("set_rgb_sync_brightness", enabled=enabled)
 
 
 # Opt-in gate the suspend hook reads directly (not armada-rgb's own config);

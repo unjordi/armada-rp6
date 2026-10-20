@@ -1,5 +1,7 @@
-use crate::rgb_saturation_helper::rgb_after_saturation;
-use crate::{config, runtime, Effect, EffectState, LightingBackend, LightingConfig};
+use crate::rgb_saturation::rgb_after_saturation;
+use crate::{
+    config, display_brightness, runtime, Effect, EffectState, LightingBackend, LightingConfig,
+};
 use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
@@ -64,7 +66,8 @@ impl Controller {
             config.correction = self.backend.default_correction();
         }
         if !self.daemon_running() {
-            self.backend.apply(&config)?;
+            let applied_config: LightingConfig = Self::config_for_apply(&config)?;
+            self.backend.apply(&applied_config)?;
         }
         config::save(&self.config_path, &config)?;
         Ok(config)
@@ -82,8 +85,58 @@ impl Controller {
         }
 
         let config: LightingConfig = self.get()?;
-        self.backend.apply(&config)?;
+        let applied_config: LightingConfig = Self::config_for_apply(&config)?;
+        self.backend.apply(&applied_config)?;
         Ok(None)
+    }
+
+    pub fn apply_if_linked(&self) -> Result<Option<String>> {
+        if let Some(reason) = self.backend.unsupported_reason() {
+            return Ok(Some(reason.into()));
+        }
+
+        // The daemon repaints linked brightness itself every frame.
+        if self.daemon_running() {
+            return Ok(None);
+        }
+
+        let config: LightingConfig = self.get()?;
+        if !config.enabled || !config.link_brightness {
+            return Ok(None);
+        }
+
+        let applied_config: LightingConfig = Self::config_for_apply(&config)?;
+        self.backend.apply(&applied_config)?;
+        Ok(None)
+    }
+
+    fn config_for_apply(config: &LightingConfig) -> Result<LightingConfig> {
+        let mut applied_config: LightingConfig = config.clone();
+        if config.enabled && config.link_brightness {
+            let screen_percent: u8 = display_brightness::screen_brightness_percent()?;
+            applied_config.brightness =
+                display_brightness::linked_brightness(screen_percent, config.max_brightness);
+        }
+        Ok(applied_config)
+    }
+
+    pub fn sleep(&self) -> Result<()> {
+        if !self.backend.blanks_on_sleep() {
+            return Ok(());
+        }
+
+        let mut config: LightingConfig = self.get()?;
+        config.enabled = false;
+        self.backend.apply(&config)
+    }
+
+    pub fn wake(&self) -> Result<()> {
+        if !self.backend.blanks_on_sleep() {
+            return Ok(());
+        }
+
+        self.apply()?;
+        Ok(())
     }
 
     /// Run the lighting daemon: keep the saved configuration painted, animate it
@@ -118,14 +171,21 @@ impl Controller {
 
             effects.set_user_sync_scale(config.sync_scale);
 
+            // Linked brightness: `max_brightness` is the ceiling the screen
+            // percentage scales (see `display_brightness::linked_brightness`).
+            let mut frame_config: LightingConfig = config.clone();
+            if config.link_brightness {
+                frame_config.brightness = config.max_brightness;
+            }
+
             // Static (and disabled) reuse the exact one-shot path so a saved
             // solid color — including any config-level correction — is
-            // honored. `sync_brightness` is applied here too: it is a
+            // honored. Linked brightness is applied here too: it is a
             // modifier over the FINAL painted brightness, not part of any
-            // one effect (see `LightingConfig::sync_brightness`).
+            // one effect.
             if config.effect.is_static() {
-                let mut painted: LightingConfig = config.clone();
-                painted.brightness = effects.scale_for_sync(config.brightness, config.sync_brightness);
+                let mut painted: LightingConfig = frame_config.clone();
+                painted.brightness = effects.scale_for_sync(frame_config.brightness, config.link_brightness);
                 if let Err(error) = self.backend.apply(&painted) {
                     eprintln!("armada-rgb: apply failed: {error:#}");
                 }
@@ -142,11 +202,11 @@ impl Controller {
             }
 
             let t: f64 = start.elapsed().as_secs_f64();
-            let (colors, brightness) = animated_frame(&mut effects, &config, t, count);
-            // `sync_brightness` scales whatever brightness the effect just
+            let (colors, brightness) = animated_frame(&mut effects, &frame_config, t, count);
+            // Linked brightness scales whatever brightness the effect just
             // computed (a plain color, a breath, rainbow, ...) — it composes
             // with any effect rather than being one itself.
-            let brightness: u8 = effects.scale_for_sync(brightness, config.sync_brightness);
+            let brightness: u8 = effects.scale_for_sync(brightness, config.link_brightness);
             if let Err(error) = self.backend.render(&colors, brightness) {
                 eprintln!("armada-rgb: render failed: {error:#}");
             }

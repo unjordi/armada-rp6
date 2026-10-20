@@ -1,5 +1,5 @@
 import { toaster } from "@decky/api";
-import { ButtonItem, Field, PanelSection } from "@decky/ui";
+import { Field, PanelSection } from "@decky/ui";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import {
@@ -18,9 +18,10 @@ import {
   setSleepMode as applySleepMode,
   setSleepLogsEnabled as applySleepLogsEnabled,
   setSshEnabled as applySshEnabled,
+  setSwipeGesturesEnabled as applySwipeGesturesEnabled,
 } from "../backend";
 import { openCalibration } from "../components/Calibration";
-import { SelectEdit, SliderEdit, ToggleRow } from "../components/widgets";
+import { ButtonRow, SelectEdit, SliderEdit, ToggleRow } from "../components/widgets";
 import { useDebouncedApply } from "../hooks/useDebouncedApply";
 import { friendlyError } from "../lib/errors";
 import { t, translateLabel } from "../i18n";
@@ -35,6 +36,7 @@ export function Settings({ config, setConfig }: {
   config: Config;
   setConfig: Dispatch<SetStateAction<Config | null>>;
 }) {
+  const [swipeGesturesSaving, setSwipeGesturesSaving] = useState(false);
   const [sleepLogsEnabled, setSleepLogsEnabled] = useState<boolean | null>(null);
   const [sleepLogsSaving, setSleepLogsSaving] = useState(false);
   const [keepRollback, setKeepRollbackState] = useState<boolean | null>(null);
@@ -139,6 +141,18 @@ export function Settings({ config, setConfig }: {
       setConfig((current) => (current ? { ...current, ablAutoEnabled: !enabled } : current));
     }
   };
+  const setSwipeGesturesEnabled = async (enabled: boolean) => {
+    if (swipeGesturesSaving) return;
+    setSwipeGesturesSaving(true);
+    try {
+      const applied = await applySwipeGesturesEnabled(enabled);
+      setConfig((current) => (current ? { ...current, swipeGesturesEnabled: applied } : current));
+    } catch (error) {
+      toaster.toast({ title: t("settings.swipeGesturesError"), body: String(error) });
+    } finally {
+      setSwipeGesturesSaving(false);
+    }
+  };
   const setBottomScreenEnabled = async (enabled: boolean) => {
     if (enabled === !!config.bottomScreenEnabled) {
       return;
@@ -209,9 +223,16 @@ export function Settings({ config, setConfig }: {
           options={(config.controllerTypes || []).map((option) => ({ ...option, label: translateLabel(option.label) }))}
           onChange={setControllerType}
         />
-        <ButtonItem layout="below" onClick={openCalibration}>{t("calibration.launch")}</ButtonItem>
+        <ButtonRow layout="below" onClick={openCalibration}>{t("calibration.launch")}</ButtonRow>
       </PanelSection>
       <PanelSection title={t("settings.system")}>
+        <ToggleRow
+          label={t("settings.swipeGestures")}
+          description={t("settings.swipeGesturesDescription")}
+          value={config.swipeGesturesEnabled}
+          disabled={swipeGesturesSaving}
+          onChange={setSwipeGesturesEnabled}
+        />
         <SelectEdit
           label={t("settings.sleepMode")}
           value={config.sleepMode || "s2idle"}

@@ -115,7 +115,7 @@ function componentFiles(dir) {
   });
 }
 // Product and button names are not translated.
-const untranslatable = new Set(["Armada Control", "LT", "RT"]);
+const untranslatable = new Set(["Armada Control", "LT", "RT", "Turnip"]);
 const bareText = [];
 for (const file of componentFiles(srcDir)) {
   const text = readFileSync(file, "utf8");
