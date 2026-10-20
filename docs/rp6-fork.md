@@ -147,7 +147,7 @@ LED-vs-panel scale (`syncScale`) on top of upstream's Smart Brightness (`linkBri
 older `sync_brightness`/`sync_scale` configs are read by alias and keep their level), and `armada-rgb run`, a
 daemon that re-paints the saved configuration (also after resume) and reloads live when
 `/etc/armada/rgb.json` changes. The daemon is the only writer while it runs (it writes
-`/run/armada-rgb/daemon.pid`): `set` only saves, and upstream's `watch` exits, so moving a UI slider does not
+`/run/armada-rgb/daemon.pid`): `set` only saves, and upstream's `watch` stays up without painting, so moving a UI slider does not
 flash the base colour before the effect repaints. The backlight is read from the panel node
 (`ae94000.dsi.0`) over the generic `backlight`. Full CLI and effect reference: `packages/armada-rgb/README.md`.
 
