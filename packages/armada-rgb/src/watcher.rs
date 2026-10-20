@@ -11,6 +11,11 @@ pub fn watch_brightness(controller: &Controller, interval: Duration) -> Result<(
     let mut last_error: Option<String> = None;
 
     loop {
+        // `armada-rgb run` repaints linked brightness itself; one owner of the LEDs.
+        if controller.daemon_running() {
+            return Ok(());
+        }
+
         let config = controller.get()?;
 
         // Exit the thread if RGB is disabled or linked brightness is not enabled, to avoid unnecessary polling.

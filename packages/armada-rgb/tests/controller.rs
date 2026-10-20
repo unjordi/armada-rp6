@@ -874,3 +874,32 @@ fn set_paints_when_the_daemon_pid_is_stale_or_missing() {
     controller.set(enabled("FF8000", 25)).unwrap();
     assert_eq!(fixture.value("rgb:l1", "brightness"), "64");
 }
+
+#[test]
+fn watch_leaves_linked_brightness_to_a_running_daemon() {
+    let fixture: Fixture = Fixture::new();
+    let targets: Vec<String> = vec!["rgb:l1".to_string()];
+    fixture.target("rgb:l1", "red green blue", "255");
+    let pid_file: PathBuf = fixture.root.join("daemon.pid");
+    fs::write(&pid_file, format!("{}\n", std::process::id())).unwrap();
+    let controller: Controller = fixture.controller(&targets).with_daemon_pid_path(pid_file);
+    controller
+        .set(LightingConfig {
+            link_brightness: true,
+            max_brightness: 60,
+            ..enabled("FF8000", 25)
+        })
+        .unwrap();
+
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = armada_rgb::watch_brightness(&controller, std::time::Duration::from_millis(20));
+        let _ = done.send(result.is_ok());
+    });
+    assert_eq!(
+        finished.recv_timeout(std::time::Duration::from_secs(3)),
+        Ok(true),
+        "watch kept polling while the daemon owns the LEDs"
+    );
+    assert_eq!(fixture.value("rgb:l1", "brightness"), "unchanged");
+}

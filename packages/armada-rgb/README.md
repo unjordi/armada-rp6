@@ -85,8 +85,8 @@ Pocket 6 exposes `ae94000.dsi.0` and `backlight`). If the backlight cannot be
 read, `run` logs once and paints the ceiling unscaled; it never goes dark
 because of a missing node.
 
-While `run` is the painter, `set` and `watch` only save: the daemon picks the
-change up on its next tick. Saves from before `linkBrightness` existed
+While `run` is the painter, `set` only saves and `watch` exits: the daemon picks
+the change up on its next tick. Saves from before `linkBrightness` existed
 (`sync_brightness`, `sync_scale`) load through aliases, and a linked one keeps
 its painted level (`maxBrightness` = its `brightness`).
 
