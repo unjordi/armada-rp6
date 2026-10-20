@@ -353,11 +353,6 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
 - `patches/0566-clk-qcom-gcc-sm8550-let-the-pcie-gdscs-collapse-in-suspend.patch`
   source: armada
   upstream: local
-  notes: Not in the series. On the RP6 suspend-to-RAM keeps the PCIe link up (0522a keeps the root port's D3cold veto), and with OFF_ON the GDSC would collapse under it. SM8550 keeps RET_ON and the 0520 floor.
-- `patches/0520-arm64-dts-qcom-sm8550-add-a-pcie-suspend-opp.patch`
-  source: armada
-  upstream: not submitted
-  notes: Companion DT for 0513. `opp-hz` is synthetic and `opp-level` is omitted so the OPP can never be selected for a trained link by either match in `qcom_pcie_icc_opp_update()`. pcie1 is disabled in the SM8550 board DTS files that use this table and gets no suspend OPP.
 - `patches/0567-clk-qcom-gcc-sm8650-let-the-pcie-gdscs-collapse-in-suspend.patch`
   source: armada
   upstream: local
@@ -866,10 +861,6 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: armada
   upstream: local
   notes: Lets userspace keep a charge-indicator pattern lit on the HTR3212 stick LEDs through system suspend.
-- `patches/0522a-PCI-host-common-keep-root-port-d3cold-veto-for-suspend-to-ram.patch`
-  source: armada
-  upstream: local
-  notes: Keeps 0522's endpoint-only D3cold rule for s2idle but restores the root-port veto for suspend-to-RAM: with the controller off, nothing keeps a DDR vote through PSCI system suspend and the RP6 never resumes from deep.
 - `patches/0533-hwmon-pwm-fan-optional-static-pwm-across-suspend.patch`
   source: armada
   upstream: local

@@ -25,7 +25,7 @@ Contents: [Kernel](#1-kernel) · [Deep suspend and dark resume](#2-deep-suspend-
 
 ## 1. Kernel
 
-**What and why.** Eight kernel-tree changes live in `packages/kernel/`, all tagged `source: armada`,
+**What and why.** Seven kernel-tree changes live in `packages/kernel/`, all tagged `source: armada`,
 `upstream: local` in `packages/kernel/PATCHES.md` (none is submitted upstream yet). They exist so that the
 RP6 can sleep in PSCI suspend-to-RAM ("deep"), charge while asleep, keep its LEDs and fan going, and wake
 only when it should.
@@ -33,14 +33,14 @@ only when it should.
 | Change | Purpose (from its patch header / `PATCHES.md`) |
 |---|---|
 | `0030a-leds-htr3212-retain-pattern-in-suspend.patch` | Adds an optional `keep_alive` sysfs attribute to the HTR3212 stick-LED controller. When set, the driver skips shutdown and regulator disable in its suspend hook, so the chip keeps driving its last PWM pattern with no CPU. |
-| `0522a-PCI-host-common-keep-root-port-d3cold-veto-for-suspend-to-ram.patch` | Keeps upstream's endpoint-only D3cold rule (`0522`) for s2idle but restores the root-port veto for suspend-to-RAM. Without it the PCIe controller is powered off in PSCI suspend, nothing keeps a DDR vote, and the RP6 never resumes from deep (3/3 hangs at `PM: suspend entry (deep)` in the patch's measurements). |
-| `0520-arm64-dts-qcom-sm8550-add-a-pcie-suspend-opp.patch` (kept), `0566-…-gcc-sm8550-let-the-pcie-gdscs-collapse-in-suspend` (left out) | Upstream replaced 0520 with 0566 (PCIe GDSCs `OFF_ON`). With 0522a the link stays up in suspend-to-RAM, so genpd would collapse the GDSC under it; SM8550 keeps `RET_ON` and 0520's s2idle floor. `tests/kernel-sm8550-pcie-suspend-test.sh` fails if 0566 comes back next to 0522a. |
 | `0533-hwmon-pwm-fan-optional-static-pwm-across-suspend.patch` | Adds a `suspend_pwm` module parameter (default 0 = stock behaviour): a static fan duty kept across suspend-to-RAM. Userspace sets it only while charging. |
 | `0910-power-supply-qcom-battmgr-dont-hold-wakeup-source-on-routine-notifications.patch` | Registers the battmgr supplies with no wakeup source, so routine ADSP telemetry no longer blocks suspend. Replaces upstream-series `0504` (IPCC summary-irq mask), which also silenced the charger doorbell. |
 | `0911-power-supply-qcom-battmgr-wake-on-charger-attach-detach.patch` | Wakes the system only when `usb.online` / `wireless.online` actually changes (a real attach or detach). |
 | `0912-power-supply-qcom-battmgr-pause-notifications-during-system-suspend.patch` | Asks the firmware to stop battery notifications during system suspend (SM8550 variant) and re-requests them only once the AP has stayed awake `resume_notify_delay_ms` (20 s). The enable request resets the firmware's power-state baseline, so re-enabling on every short dark-resume round made the next firmware event wake the device again. Plug, unplug and charge-state changes still wake it. |
 | `dts/qcs8550-retroidpocket-rp6-suspend.dts.patch` | Marks the HTR3212 controllers always-on and drops `regulator-off-in-suspend` from `vdd_fan_5v0`, which `0030a` and `0533` need. |
 | `dts/qcs8550-retroidpocket-rp6.dts` (LED groups) | Lists each multicolor LED group's channels in red, green, blue order by their colour (the node labels are swapped against their colour). The kernel's charging trigger fills intensities by position, so the old order painted the charge colour blue-cyan. |
+
+**PCIe across suspend** is upstream's as is (`0522` endpoint-only D3cold, `0566` PCIe GDSCs `OFF_ON`, no suspend OPP floor).
 
 **Series changes.** `packages/kernel/patches/series` also disables two upstream patches, each with an
 inline reason: `0004-drm-msm-a6xx-Enable-IFPC-on-Adreno-740.patch` (on the A740, IFPC wedges the GPU after
@@ -53,13 +53,13 @@ PNG of a game frame overran it and the kernel killed the whole compositor (see `
 
 **Files (9 + 2)**
 - `packages/kernel/patches/series`, `packages/kernel/PATCHES.md`
-- `packages/kernel/patches/0030a-…`, `0522a-…`, `0533-…`, `0910-…`, `0911-…`, `0912-…`
+- `packages/kernel/patches/0030a-…`, `0533-…`, `0910-…`, `0911-…`, `0912-…`
 - `packages/kernel/dts/qcs8550-retroidpocket-rp6-suspend.dts.patch`, `packages/kernel/dts/qcs8550-retroidpocket-rp6.dts`
 - `packages/gamescope/patches/0029-screenshot-thread-sched-other-not-rt.patch`, `packages/gamescope/PATCHES.md`
 
 **How to verify**
 - In the repo, every patch in the series exists and each fork patch is documented:
-  `grep -E '0030a|0522a|0533|0910|0911|0912|rp6-suspend' packages/kernel/patches/series packages/kernel/PATCHES.md`.
+  `grep -E '0030a|0533|0910|0911|0912|rp6-suspend' packages/kernel/patches/series packages/kernel/PATCHES.md`.
 - On the device, the kernel parameters exist: `cat /sys/module/pwm_fan/parameters/suspend_pwm` and
   `cat /sys/bus/i2c/devices/{2,3}-003c/keep_alive` (one attribute per HTR3212 controller, on its I2C device).
 - On the device, deep is advertised: `cat /sys/power/mem_sleep` shows `deep`.
