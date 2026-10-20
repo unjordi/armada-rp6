@@ -142,12 +142,14 @@ On top of the kernel patches above, userspace adds:
 **What and why.** `packages/armada-rgb/` is the lighting daemon and CLI for the RP6's stick LEDs
 (HTR3212 controllers). The fork extends it with animated effects (`static`, `breathing`, `color_cycle`,
 `rainbow`, `load`, `battery`, `screen_sync` — an ambilight sampled from the screen through
-`gamescopectl screenshot`, run as the session user via `runuser`), brightness that follows the screen
-backlight, a saturation setting, a device-tuned scale for that brightness sync, and `armada-rgb run`, a
+`gamescopectl screenshot`, run as the session user via `runuser`), a saturation setting, a device-tuned
+LED-vs-panel scale (`syncScale`) on top of upstream's Smart Brightness (`linkBrightness`/`maxBrightness`;
+older `sync_brightness`/`sync_scale` configs are read by alias and keep their level), and `armada-rgb run`, a
 daemon that re-paints the saved configuration (also after resume) and reloads live when
-`/etc/armada/rgb.json` changes. `set` only paints the LEDs itself when no daemon is running (the daemon
-writes `/run/armada-rgb/daemon.pid`), so moving a UI slider does not flash the base colour before the
-effect repaints. Full CLI and effect reference: `packages/armada-rgb/README.md`.
+`/etc/armada/rgb.json` changes. The daemon is the only writer while it runs (it writes
+`/run/armada-rgb/daemon.pid`): `set` only saves, and upstream's `watch` exits, so moving a UI slider does not
+flash the base colour before the effect repaints. The backlight is read from the panel node
+(`ae94000.dsi.0`) over the generic `backlight`. Full CLI and effect reference: `packages/armada-rgb/README.md`.
 
 **Files (11 + 1)**
 - `packages/armada-rgb/src/{backend,controller,effects,lib,main,state}.rs`, `tests/controller.rs`,
@@ -267,8 +269,9 @@ them in Armada Control.
   through Settings > System; `armada-update check` compares the local digest with the registry's.
 - **Monorepo packages:** `packages.yml` builds each package in `packages/` into
   `ghcr.io/<owner>/armada/pkg/<name>:<content-hash>`. On a fork it reuses upstream's published build
-  (`ghcr.io/armada-os/armada/pkg`) of an unchanged package. `pr.yml` runs `tests/*-test.sh` and builds the
-  image for pull requests without publishing.
+  (`ghcr.io/armada-os/armada/pkg`) of an unchanged package. `pr.yml` runs `tests/*-test.sh` (a test that takes
+  a built artifact as its argument, such as `lepton-split-test.sh`, is reported as SKIP) and builds the image for
+  pull requests without publishing.
 - **terra-pins:** `packages/terra-pins/` fixes the RPMs the image takes from Terra by sha256 in `pins.txt`
   (5 pins). The image build installs them from that package and never contacts Terra, so a Terra outage or
   half-published mirror cannot break it. A package may ship its own `Containerfile.package`;
