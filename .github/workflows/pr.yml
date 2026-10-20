@@ -48,6 +48,11 @@ jobs:
           set -uo pipefail
           failed=()
           for t in tests/*-test.sh; do
+            # Tests that take a built artifact as their argument (e.g. a patched package's script) cannot run here.
+            if grep -q '\${1:?' "${t}"; then
+              echo "::notice::SKIP ${t} (needs an argument)"
+              continue
+            fi
             echo "::group::${t}"
             bash "${t}" || failed+=("${t}")
             echo "::endgroup::"
