@@ -25,7 +25,7 @@ Contents: [Kernel](#1-kernel) · [Deep suspend and dark resume](#2-deep-suspend-
 
 ## 1. Kernel
 
-**What and why.** Seven kernel-tree changes live in `packages/kernel/`, all tagged `source: armada`,
+**What and why.** Eight kernel-tree changes live in `packages/kernel/`, all tagged `source: armada`,
 `upstream: local` in `packages/kernel/PATCHES.md` (none is submitted upstream yet). They exist so that the
 RP6 can sleep in PSCI suspend-to-RAM ("deep"), charge while asleep, keep its LEDs and fan going, and wake
 only when it should.
@@ -37,8 +37,9 @@ only when it should.
 | `0533-hwmon-pwm-fan-optional-static-pwm-across-suspend.patch` | Adds a `suspend_pwm` module parameter (default 0 = stock behaviour): a static fan duty kept across suspend-to-RAM. Userspace sets it only while charging. |
 | `0910-power-supply-qcom-battmgr-dont-hold-wakeup-source-on-routine-notifications.patch` | Registers the battmgr supplies with no wakeup source, so routine ADSP telemetry no longer blocks suspend. Replaces upstream-series `0504` (IPCC summary-irq mask), which also silenced the charger doorbell. |
 | `0911-power-supply-qcom-battmgr-wake-on-charger-attach-detach.patch` | Wakes the system only when `usb.online` / `wireless.online` actually changes (a real attach or detach). |
-| `0912-power-supply-qcom-battmgr-pause-notifications-during-system-suspend.patch` | Asks the firmware to stop battery notifications during system suspend (SM8550 variant) and re-requests them on resume, so ADSP status pushes stop waking the device. Plug and unplug still wake it. |
+| `0912-power-supply-qcom-battmgr-pause-notifications-during-system-suspend.patch` | Asks the firmware to stop battery notifications during system suspend (SM8550 variant) and re-requests them only once the AP has stayed awake `resume_notify_delay_ms` (20 s). The enable request resets the firmware's power-state baseline, so re-enabling on every short dark-resume round made the next firmware event wake the device again. Plug, unplug and charge-state changes still wake it. |
 | `dts/qcs8550-retroidpocket-rp6-suspend.dts.patch` | Marks the HTR3212 controllers always-on and drops `regulator-off-in-suspend` from `vdd_fan_5v0`, which `0030a` and `0533` need. |
+| `dts/qcs8550-retroidpocket-rp6.dts` (LED groups) | Lists each multicolor LED group's channels in red, green, blue order by their colour (the node labels are swapped against their colour). The kernel's charging trigger fills intensities by position, so the old order painted the charge colour blue-cyan. |
 
 **Series changes.** `packages/kernel/patches/series` also disables two upstream patches, each with an
 inline reason: `0004-drm-msm-a6xx-Enable-IFPC-on-Adreno-740.patch` (on the A740, IFPC wedges the GPU after
@@ -49,10 +50,10 @@ idle and the panel stays black) and `0504-mailbox-qcom-ipcc-mask-summary-irq-for
 gamescope's screenshot thread to `SCHED_OTHER`: under the compositor's `RLIMIT_RTTIME` budget, encoding a
 PNG of a game frame overran it and the kernel killed the whole compositor (see `packages/gamescope/PATCHES.md`).
 
-**Files (8 + 2)**
+**Files (9 + 2)**
 - `packages/kernel/patches/series`, `packages/kernel/PATCHES.md`
 - `packages/kernel/patches/0030a-…`, `0522a-…`, `0533-…`, `0910-…`, `0911-…`, `0912-…`
-- `packages/kernel/dts/qcs8550-retroidpocket-rp6-suspend.dts.patch`
+- `packages/kernel/dts/qcs8550-retroidpocket-rp6-suspend.dts.patch`, `packages/kernel/dts/qcs8550-retroidpocket-rp6.dts`
 - `packages/gamescope/patches/0024-screenshot-thread-sched-other-not-rt.patch`, `packages/gamescope/PATCHES.md`
 
 **How to verify**
@@ -61,6 +62,8 @@ PNG of a game frame overran it and the kernel killed the whole compositor (see `
 - On the device, the kernel parameters exist: `cat /sys/module/pwm_fan/parameters/suspend_pwm` and
   `cat /sys/bus/i2c/devices/{2,3}-003c/keep_alive` (one attribute per HTR3212 controller, on its I2C device).
 - On the device, deep is advertised: `cat /sys/power/mem_sleep` shows `deep`.
+- On the device: `cat /sys/module/qcom_battmgr/parameters/resume_notify_delay_ms` shows `20000`, and
+  `cat /sys/class/leds/rgb:l1/multi_index` shows `red green blue`. In the repo: `tests/rp6-led-groups-rgb-order-test.sh`.
 - A real deep suspend returns: `rtcwake -m mem -s 30` (resumes by RTC), then `journalctl -k -b | grep 'suspend entry (deep)'`.
 
 ---
@@ -78,9 +81,20 @@ On top of the kernel patches above, userspace adds:
   and the kernel resumes fully. The library keeps user sessions frozen and the suspend job alive (logind
   never sees a resume, Steam and gamescope never notice), re-runs the `pre` hooks (LED colour, fan floor),
   and sleeps again. The panel brightness is set to 0 during a round and restored before thaw. Only the power
-  button, an RTC alarm that someone armed, a suspend failure, or a wake storm (20 consecutive rounds that each
-  slept under 15 s; both tunable) end in a full resume. User slice is always thawed on exit. Kill switch:
-  `dark_resume=0` in `/etc/armada/sleep.conf`.
+  button, an RTC alarm that someone armed, or a suspend failure end in a full resume. A wake storm (20
+  consecutive rounds that each slept under 15 s; both tunable) is logged once as `reason=wakestorm` and the
+  device keeps sleeping. User slice is always thawed on exit. Kill switch: `dark_resume=0` in
+  `/etc/armada/sleep.conf`.
+- **Charger mode** (cable power-on while off): the ROCKNIX ABL then boots `boot_a`/`boot_b`, not the ESP
+  `/KERNEL`. `armada-chargerimg-update` (run by `armada-bootimg-sync` at boot and shutdown, only with
+  `ARMADA_CHARGER_MODE=1`) writes there `/KERNEL`'s kernel, initramfs and DTBs with the cmdline
+  `systemd.unit=armada-charger.target` (no `console=tty0`) and an unsigned AVB hash footer (`avbtool` vendored
+  from AOSP, accepted while unlocked), and clears the Android header of `init_boot_a`/`init_boot_b`.
+  `armada-charger.target` is `sysinit.target` plus `armada-charger.service` (no session, network or update
+  timers): it sleeps in deep while a supply is online; the power button reboots into the normal boot (with
+  splash), no supply online powers off. On that boot only, the splash units and `armada-boot-hotkeys` are
+  skipped, a udev rule puts every backlight at 0, and the initramfs `initrd-switch-root` passes systemd as
+  INIT (the ABL appends `init=/init` on that path). `suspend-dispatch` does a plain suspend there.
 - **Charge LEDs while asleep** (`56-armada-rgb-suspend-charging`): opt-in. Stops the RGB daemon, sets
   `keep_alive=1` on the controllers, arms the kernel charge trigger and seeds the current charge colour
   (amber charging, green full). Restores everything on resume.
@@ -88,21 +102,32 @@ On top of the kernel patches above, userspace adds:
   (default 51, override in `/etc/armada/fan-suspend-charging-pwm`) only while a supply reports `Charging`,
   else 0.
 - **Wake ledger** (`40-armada-wake-ledger`): one line per resume in `/var/lib/armada/wake-ledger.log`
-  (`wake_irq=`, interrupt name, mode). Dark-resume rounds add `dark-resume reason=<user|rtc|charger|other|failed|cap> online=<a>-><b> round=<n> panel=<brightness>`.
+  (`wake_irq=`, interrupt name, mode). Dark-resume rounds add `dark-resume reason=<user|rtc|charger|other|failed|wakestorm> online=<a>-><b> round=<n> panel=<brightness>`;
+  charger mode adds `charger-mode reason=<start|other|charger|user|unplug|failed> …`.
   The ledger is capped at 20000 lines, trimmed to 10000.
 - **Wake probe** (`41-armada-wake-probe`): log-only instrumentation that diffs `/proc/interrupts` across a
-  sleep to name wake sources the ledger reports as `none`.
+  sleep to name wake sources the ledger reports as `none`. It enables `pm_debug_messages` for the cycle and
+  restores it; it leaves `pm_print_times` off (one line per device callback filled the journal).
+- **Journal retention** (`journald.conf.d/50-armada-retention.conf`): one week, capped at 512M.
 
-**Files (9)**
+**Files**
 - `system_files/usr/libexec/armada/suspend-dispatch`, `system_files/usr/lib/armada/dark-resume-lib`
 - `system_files/usr/libexec/armada/device-env`, `docs/deep-suspend-fleet-gate.md`
 - `system_files/usr/lib/systemd/system-sleep/40-armada-wake-ledger`, `41-armada-wake-probe`,
   `45-armada-wake-policy`, `55-armada-fan-suspend-charging`, `56-armada-rgb-suspend-charging`
+- Charger mode: `system_files/usr/libexec/armada/armada-chargerimg-update`, `armada-charger`,
+  `system_files/usr/lib/armada/bootimg-args`, `system_files/usr/lib/systemd/system/armada-charger.{target,service}`,
+  `armada-bootimg-sync.service`, the `armada-charger.conf` drop-ins, `usr/lib/udev/rules.d/61-armada-charger-backlight.rules`,
+  `usr/lib/dracut/modules.d/91armada-charger/`, `build_files/vendor/avb/avbtool.py`
 
 **How to verify**
 - In the repo: `tests/dark-resume-test.sh`, `tests/wake-policy-hook-test.sh`, `tests/wake-probe-hook-test.sh`,
   `tests/fan-suspend-charging-hook-test.sh`, `tests/rgb-suspend-charging-hook-test.sh`,
-  `tests/device-env-suspend-test.sh`. Each uses fake sysfs and replays wake events.
+  `tests/device-env-suspend-test.sh`, `tests/armada-charger-test.sh`, `tests/charger-mode-units-test.sh`,
+  `tests/bootimg-regen-test.sh` (charger image). Each uses fake sysfs and replays wake events.
+- On the device, the charger image: `python3 /usr/libexec/armada/avbtool.py info_image --image
+  /dev/disk/by-partlabel/boot_a` (Algorithm NONE, partition boot) and
+  `journalctl -b -u armada-bootimg-sync | grep chargerimg`.
 - On the device, the effective mode: `/usr/libexec/armada/device-env | grep -E 'SUSPEND_MODE|DARK_RESUME'`.
 - On the device, after a suspend with the charger plugged or unplugged while asleep:
   `tail -n 20 /var/lib/armada/wake-ledger.log` shows `dark-resume reason=charger … panel=0` and the screen stayed dark.
