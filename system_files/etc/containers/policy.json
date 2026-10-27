@@ -25,6 +25,15 @@
                     }
                 }
             ],
+            "ghcr.io/unjordi/armada-rp6": [
+                {
+                    "type": "sigstoreSigned",
+                    "keyPath": "/etc/pki/containers/armada-rp6.pub",
+                    "signedIdentity": {
+                        "type": "matchRepository"
+                    }
+                }
+            ],
             "": [
                 {
                     "type": "insecureAcceptAnything"
