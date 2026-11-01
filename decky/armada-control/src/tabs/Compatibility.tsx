@@ -16,7 +16,6 @@ import { ButtonRow, ControlRow, SelectEdit, SliderEdit, ToggleRow } from "../com
 import { ArmadaModalRoot } from "../components/ArmadaModalRoot";
 import { getCurrentLocale, t, translateLabel } from "../i18n";
 import { findPreset, localized, resolveEnvValues } from "../lib/envPresets";
-import { friendlyError } from "../lib/errors";
 import { getGlobalResolution, setGlobalResolution } from "../lib/steamSettings";
 import { clone } from "../lib/util";
 import { availableGames, editTargetOptions } from "../lib/games";
@@ -705,7 +704,7 @@ export function Compatibility({ config, setConfig }: { config: Config; setConfig
       await reapplyPerf();
       setReapplyStatus(t("compatibility.appliedToRunningGame"));
     } catch (error) {
-      setReapplyStatus(friendlyError(error, t("compatibility.reapplyError")));
+      setReapplyStatus(String(error));
     }
   };
   const restartWithTweaks = async () => {
@@ -714,7 +713,7 @@ export function Compatibility({ config, setConfig }: { config: Config; setConfig
       await saveTweaks(tweaksRef.current);
       await restartGameMode();
     } catch (error) {
-      setReapplyStatus(t("compatibility.restartError", { error: friendlyError(error, t("compatibility.restartGameModeError")) }));
+      setReapplyStatus(t("compatibility.restartError", { error: String(error) }));
     }
   };
   const setGamescopeVulkanRealtime = (on: boolean) => {

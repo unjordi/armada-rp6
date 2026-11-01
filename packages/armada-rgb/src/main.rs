@@ -1,10 +1,7 @@
 //! Command line interface for RGB lighting.
 
 use anyhow::Result;
-use armada_rgb::{
-    watch_brightness, ColorCorrection, Controller, Effect, EffectState, LightingConfig,
-    ScreenSyncProbe,
-};
+use armada_rgb::{watch_brightness, ColorCorrection, Controller, LightingConfig};
 use clap::{Parser, Subcommand};
 use std::time::Duration;
 
@@ -41,19 +38,6 @@ enum Command {
         /// RGB correction trigger and channel reductions.
         #[arg(long, value_name = "TRIGGER:RED,GREEN,BLUE")]
         correction: Option<ColorCorrection>,
-        /// Animation: static, breathing, color_cycle, rainbow, load, battery,
-        /// screen_sync. (Brightness-follows-backlight is NOT an effect — it is
-        /// the orthogonal `sync-brightness on/off` toggle, combinable with any
-        /// of these.)
-        #[arg(long, value_parser = parse_effect)]
-        effect: Option<Effect>,
-        /// Animation speed as a percentage (100 = default).
-        #[arg(long)]
-        speed: Option<u16>,
-        /// LED-vs-screen factor for brightness sync, in percent (10-200), or
-        /// `default` to go back to the device value.
-        #[arg(long, value_name = "PERCENT|default")]
-        sync_scale: Option<String>,
     },
     /// Turn the stick lights off and save that state.
     Off,
@@ -69,41 +53,6 @@ enum Command {
     Sleep,
     /// Restore saved lighting after sleep on MCU-driven backends.
     Wake,
-    /// Run the lighting daemon: keep the saved configuration painted, animate
-    /// the selected effect, and reload live when the config changes.
-    Run,
-    /// Toggle brightness-follows-screen-backlight as a MODIFIER on top of
-    /// whatever color/effect is already configured — not a replacement
-    /// effect. Persists (`linkBrightness` in the saved configuration) and
-    /// takes effect on `run`'s next tick (at most ~1s later) without
-    /// touching color/effect/brightness.
-    SyncBrightness {
-        #[command(subcommand)]
-        state: SyncBrightnessState,
-    },
-    /// Diagnostic/benchmark: run one or more instrumented `screen_sync`
-    /// captures and print the compositor-capture time, the read+sample time
-    /// (no PNG decode), the raw NV12 size, the resolved geometry, and the
-    /// sampled left/right edge colors. Uses the same env overrides as `run`.
-    #[command(hide = true)]
-    ScreenSyncProbe {
-        /// How many captures to take.
-        #[arg(long, default_value_t = 5)]
-        iterations: u32,
-    },
-}
-
-#[derive(Subcommand)]
-enum SyncBrightnessState {
-    /// Scale the painted brightness by the live screen backlight percentage,
-    /// with the current brightness as the ceiling.
-    On,
-    /// Use the configured brightness as-is (the default).
-    Off,
-}
-
-fn parse_effect(value: &str) -> Result<Effect, String> {
-    value.parse()
 }
 
 fn main() -> Result<()> {
@@ -128,9 +77,6 @@ fn main() -> Result<()> {
             saturation,
             brightness,
             correction,
-            effect,
-            speed,
-            sync_scale,
         } => {
             let mut config: LightingConfig = controller.get()?;
             config.enabled = enabled.unwrap_or(true);
@@ -151,19 +97,6 @@ fn main() -> Result<()> {
             if let Some(correction) = correction {
                 config.correction = Some(correction);
             }
-            if let Some(effect) = effect {
-                config.effect = effect;
-            }
-            if let Some(speed) = speed {
-                config.speed = speed;
-            }
-            if let Some(raw) = sync_scale {
-                config.sync_scale = if raw == "default" {
-                    None
-                } else {
-                    Some(raw.parse::<u16>().map_err(|_| anyhow::anyhow!("--sync-scale: expected a percentage or 'default'"))?)
-                };
-            }
             let config: LightingConfig = controller.set(config)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
@@ -174,43 +107,6 @@ fn main() -> Result<()> {
         Command::Apply => {
             if let Some(reason) = controller.apply()? {
                 eprintln!("RGB unsupported: {reason}");
-            }
-        }
-        Command::Run => {
-            controller.run()?;
-        }
-        Command::SyncBrightness { state } => {
-            let mut config: LightingConfig = controller.get()?;
-            config.link_brightness = matches!(state, SyncBrightnessState::On);
-            if config.link_brightness {
-                // Keep the painted level: the current brightness becomes the ceiling.
-                config.max_brightness = config.brightness.max(1);
-            }
-            let config: LightingConfig = controller.set(config)?;
-            println!("{}", serde_json::to_string_pretty(&config)?);
-        }
-        Command::ScreenSyncProbe { iterations } => {
-            let state: EffectState = EffectState::default();
-            for i in 0..iterations {
-                match state.probe_screen_sync() {
-                    Ok(ScreenSyncProbe {
-                        capture_ms,
-                        process_ms,
-                        bytes,
-                        width,
-                        height,
-                        uv_offset,
-                        left,
-                        right,
-                    }) => {
-                        println!(
-                            "probe {i}: capture={capture_ms:.1}ms process={process_ms:.2}ms \
-                             bytes={bytes} geom={width}x{height} uv_offset={uv_offset} \
-                             left={left:?} right={right:?}"
-                        );
-                    }
-                    Err(reason) => println!("probe {i}: FAILED: {reason}"),
-                }
             }
         }
         Command::Watch { interval_ms } => {

@@ -7,7 +7,6 @@ import { useDebouncedSave } from "./hooks/useDebouncedSave";
 import { useLocale } from "./hooks/useLocale";
 import { t } from "./i18n";
 import { tabIcons } from "./icons";
-import { friendlyError } from "./lib/errors";
 import { currentGame } from "./lib/games";
 import { styles } from "./styles";
 import { Compatibility } from "./tabs/Compatibility";
@@ -33,7 +32,7 @@ export function Content() {
       savedTweaksSnapshot.current = JSON.stringify(next.tweaks);
       setConfig((current) => ({ ...next, installedGames: current?.installedGames || next.installedGames }));
     } catch (error) {
-      setMessage(friendlyError(error, t("common.loadError")));
+      setMessage(String(error));
     }
   }, []);
   useEffect(() => {
@@ -96,7 +95,7 @@ export function Content() {
           { id: "Power", title: tabIcons.Power, content: tabContent(<Power config={config} setConfig={setConfig} />) },
           { id: "Fans", title: tabIcons.Fans, content: tabContent(<Fans setConfig={setConfig} />) },
           ...(config.rgbSupported ? [
-            { id: "RGB", title: tabIcons.RGB, content: tabContent(<RgbLighting syncScaleDefault={config.rgbSyncScaleDefault ?? 100} />) },
+            { id: "RGB", title: tabIcons.RGB, content: tabContent(<RgbLighting />) },
           ] : []),
           { id: "Advanced", title: tabIcons.Advanced, content: tabContent(<Settings config={config} setConfig={setConfig} />) },
         ]}

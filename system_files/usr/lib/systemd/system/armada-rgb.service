@@ -1,26 +1,12 @@
 [Unit]
-Description=Armada RGB lighting daemon
+Description=Restore Armada RGB lighting
+ConditionPathExists=/etc/armada/rgb.json
 After=armada-device-quirks.service
 Before=display-manager.service
 
 [Service]
-Type=simple
-ExecCondition=/usr/bin/armada-rgb supported
-# armada-rgb-env exports the device keys (ARMADA_PRIMARY_BACKLIGHT, ARMADA_RGB_SYNC_SCALE).
-ExecStart=/usr/libexec/armada/armada-rgb-env run
-Restart=on-failure
-RestartSec=2
-# screen_sync captures the screen with `gamescopectl screenshot`, which needs the
-# armada user's Wayland session; as root it fails and the effect falls back to the
-# base colour. The daemon runs the capture through `runuser -u <user> --` (never
-# `su -`, whose login session flooded logind) with this user and session env.
-Environment=ARMADA_RGB_SCREEN_SYNC_USER=armada
-Environment=ARMADA_RGB_GAMESCOPE_XDG_RUNTIME_DIR=/run/user/1000
-Environment=ARMADA_RGB_GAMESCOPE_WAYLAND_DISPLAY=gamescope-0
-# The capture writes the PNG as `armada` and the daemon (root) reads it back, so
-# the runtime dir must be writable by both (transient tmpfs).
-RuntimeDirectory=armada-rgb
-RuntimeDirectoryMode=0777
+Type=oneshot
+ExecStart=/usr/libexec/armada/armada-rgb-env apply
 
 [Install]
 WantedBy=multi-user.target

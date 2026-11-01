@@ -1,19 +1,10 @@
 import { toaster } from "@decky/api";
 import { PanelSection } from "@decky/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  getRgb,
-  getRgbChargeIndicatorEnabled,
-  setRgb,
-  setRgbChargeIndicatorBrightness,
-  setRgbChargeIndicatorEnabled,
-} from "../backend";
-import { useDebouncedApply } from "../hooks/useDebouncedApply";
+import { getRgb, setRgb } from "../backend";
 import { t } from "../i18n";
-import { friendlyError } from "../lib/errors";
-import { displayedEffect, EFFECT_OPTIONS, USES_BASE_COLOR, USES_SATURATION, USES_SPEED } from "../lib/rgbEffects";
-import type { RgbConfig, RgbEffect } from "../types";
-import { SelectEdit, SliderEdit, ToggleRow } from "./widgets";
+import type { RgbConfig } from "../types";
+import { SliderEdit, ToggleRow } from "./widgets";
 
 const UPDATE_INTERVAL_MS: number = 100;
 
@@ -55,22 +46,10 @@ function hueColor(hue: number): string {
   }
 }
 
-export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: number }) {
+export function RgbLighting() {
   const [config, setConfig] = useState<RgbConfig | null>(null);
   const savedConfig = useRef<string>("");
   const lastUpdate = useRef<number>(0);
-  // Opt-in gate for the charge indicator shown while asleep. Not part of
-  // armada-rgb's own config, so it is loaded and saved separately.
-  const [chargeIndicatorEnabled, setChargeIndicatorEnabled] = useState(false);
-  const [chargeIndicatorUpdating, setChargeIndicatorUpdating] = useState(false);
-  const [chargeIndicatorBrightness, setChargeIndicatorBrightness] = useState(100);
-  const applyChargeIndicatorBrightness = useDebouncedApply(
-    async () => (await getRgbChargeIndicatorEnabled()).brightness,
-    setChargeIndicatorBrightness,
-    async (value) => (await setRgbChargeIndicatorBrightness(value)).brightness,
-    t("rgb.chargeIndicatorChangeError"),
-    300,
-  );
 
   const load = useCallback(async () => {
     try {
@@ -78,24 +57,13 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
       savedConfig.current = JSON.stringify(next);
       setConfig(next);
     } catch (error) {
-      toaster.toast({ title: t("rgb.loadError"), body: friendlyError(error) });
-    }
-  }, []);
-
-  const loadChargeIndicator = useCallback(async () => {
-    try {
-      const next = await getRgbChargeIndicatorEnabled();
-      setChargeIndicatorEnabled(next.enabled);
-      setChargeIndicatorBrightness(next.brightness ?? 100);
-    } catch (error) {
-      toaster.toast({ title: t("rgb.chargeIndicatorLoadError"), body: friendlyError(error) });
+      toaster.toast({ title: t("rgb.loadError"), body: String(error) });
     }
   }, []);
 
   useEffect(() => {
     load();
-    loadChargeIndicator();
-  }, [load, loadChargeIndicator]);
+  }, [load]);
 
   useEffect(() => {
     if (!config) return;
@@ -111,16 +79,13 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
           config.enabled,
           config.linkBrightness,
           config.color,
-          config.saturation ?? 100,
+          config.saturation,
           config.maxBrightness,
           config.brightness,
-          config.effect ?? "static",
-          config.speed ?? 100,
-          config.syncScale ?? null,
         );
         savedConfig.current = current;
       } catch (error) {
-        toaster.toast({ title: t("rgb.changeError"), body: friendlyError(error) });
+        toaster.toast({ title: t("rgb.changeError"), body: String(error) });
         load();
       }
     }, delay);
@@ -128,139 +93,65 @@ export function RgbLighting({ syncScaleDefault = 100 }: { syncScaleDefault?: num
     return () => window.clearTimeout(timer);
   }, [config, load]);
 
-  const toggleChargeIndicator = async (enabled: boolean) => {
-    setChargeIndicatorUpdating(true);
-    setChargeIndicatorEnabled(enabled);
-    try {
-      const next = await setRgbChargeIndicatorEnabled(enabled);
-      setChargeIndicatorEnabled(next.enabled);
-    } catch (error) {
-      setChargeIndicatorEnabled(!enabled);
-      toaster.toast({ title: t("rgb.chargeIndicatorChangeError"), body: friendlyError(error) });
-    } finally {
-      setChargeIndicatorUpdating(false);
-    }
-  };
-
   if (!config) return null;
 
-  // Display-only: an unknown saved effect shows as "static" without
-  // rewriting config.effect (see lib/rgbEffects).
-  const effect: RgbEffect = displayedEffect(config.effect);
-  const speed: number = config.speed ?? 100;
-  const colorDisabled: boolean = !config.enabled || !USES_BASE_COLOR.includes(effect);
-  const saturationDisabled: boolean = !config.enabled || !USES_SATURATION.includes(effect);
-
   return (
-    <>
-      <PanelSection title={t("rgb.title")}>
-        <ToggleRow
-          label={t("common.enabled")}
-          value={config.enabled}
-          onChange={(enabled: boolean) => setConfig({
-            ...config,
-            enabled,
-            linkBrightness: enabled ? config.linkBrightness : false,
-          })}
-        />
-        <SelectEdit
-          label={t("rgb.effect")}
-          value={effect}
-          options={EFFECT_OPTIONS.map((option) => ({ data: option.data, label: t(option.labelKey) }))}
-          disabled={!config.enabled}
-          onChange={(next: RgbEffect) => setConfig({ ...config, effect: next })}
-        />
-        <SliderEdit
-          label={config.linkBrightness ? t("rgb.maxBrightness") : t("common.brightness")}
-          value={config.linkBrightness ? config.maxBrightness : config.brightness}
-          min={config.linkBrightness ? 1 : 0}
-          max={100}
-          step={1}
-          disabled={!config.enabled}
-          onChange={(brightness: number) => setConfig(
-            config.linkBrightness ?
-              { ...config, maxBrightness: brightness } :
-              { ...config, brightness })}
-        />
-        {USES_SPEED.includes(effect) && (
-          <SliderEdit
-            label={t("rgb.speed")}
-            value={speed}
-            min={10}
-            max={400}
-            step={10}
-            disabled={!config.enabled}
-            valueSuffix="%"
-            onChange={(next: number) => setConfig({ ...config, speed: next })}
-          />
-        )}
-        <SliderEdit
-          label={t("common.color")}
-          value={colorHue(config.color)}
-          min={0}
-          max={359}
-          step={1}
-          disabled={colorDisabled}
-          showValue={false}
-          wrapperClassName="armada-slider-field armada-rgb-hue"
-          onChange={(hue: number) => setConfig({ ...config, color: hueColor(hue) })}
-        />
-        <SliderEdit
-          label={t("rgb.saturation")}
-          value={config.saturation ?? 100}
-          min={0}
-          max={100}
-          step={1}
-          disabled={saturationDisabled}
-          showValue={false}
-          wrapperClassName="armada-slider-field armada-rgb-saturation"
-          onChange={(saturation: number) => setConfig({ ...config, saturation })}
-        />
-        <ToggleRow
-          label={t("rgb.smartBrightness")}
-          description={t("rgb.syncBrightnessDescription")}
-          value={config.linkBrightness}
-          disabled={!config.enabled}
-          onChange={(linkBrightness: boolean) => setConfig({
-            ...config,
-            linkBrightness,
-            maxBrightness: linkBrightness
-              ? Math.max(1, config.maxBrightness)
-              : config.maxBrightness,
-          })}
-        />
-        {config.linkBrightness && (
-          <SliderEdit
-            label={t("rgb.syncScale")}
-            value={config.syncScale ?? syncScaleDefault}
-            min={10}
-            max={150}
-            step={1}
-            disabled={!config.enabled}
-            valueSuffix="%"
-            onChange={(next: number) => setConfig({ ...config, syncScale: next })}
-          />
-        )}
-      </PanelSection>
-      <PanelSection title={t("rgb.chargeIndicator")}>
-        <ToggleRow
-          label={t("rgb.chargeIndicatorToggle")}
-          description={t("rgb.chargeIndicatorDescription")}
-          value={chargeIndicatorEnabled}
-          disabled={chargeIndicatorUpdating}
-          onChange={toggleChargeIndicator}
-        />
-        <SliderEdit
-          label={t("rgb.chargeIndicatorBrightness")}
-          value={chargeIndicatorBrightness}
-          min={1}
-          max={100}
-          step={1}
-          disabled={!chargeIndicatorEnabled || chargeIndicatorUpdating}
-          valueSuffix="%"
-          onChange={applyChargeIndicatorBrightness}
-        />
-      </PanelSection>
-    </>
+    <PanelSection title={t("rgb.title")}>
+      <ToggleRow
+        label={t("common.enabled")}
+        value={config.enabled}
+        onChange={(enabled: boolean) => setConfig({
+          ...config,
+          enabled,
+          linkBrightness: enabled ? config.linkBrightness : false,
+        })}
+      />
+      <ToggleRow
+        label={t("rgb.smartBrightness")}
+        value={config.linkBrightness}
+        disabled={!config.enabled}
+        onChange={(linkBrightness: boolean) => setConfig({
+          ...config,
+          linkBrightness,
+          maxBrightness: linkBrightness
+            ? Math.max(1, config.maxBrightness)
+            : config.maxBrightness,
+        })}
+      />
+      <SliderEdit
+        label={config.linkBrightness ? t("rgb.maxBrightness") : t("common.brightness")}
+        value={config.linkBrightness ? config.maxBrightness : config.brightness}
+        min={config.linkBrightness ? 1 : 0}
+        max={100}
+        step={1}
+        disabled={!config.enabled}
+        onChange={(brightness: number) => setConfig(
+          config.linkBrightness ?
+            { ...config, maxBrightness: brightness } :
+            { ...config, brightness })}
+      />
+      <SliderEdit
+        label={t("common.color")}
+        value={colorHue(config.color)}
+        min={0}
+        max={359}
+        step={1}
+        disabled={!config.enabled}
+        showValue={false}
+        wrapperClassName="armada-slider-field armada-rgb-hue"
+        onChange={(hue: number) => setConfig({ ...config, color: hueColor(hue) })}
+      />
+      <SliderEdit
+        label={t("rgb.saturation")}
+        value={config.saturation}
+        min={0}
+        max={100}
+        step={1}
+        disabled={!config.enabled}
+        showValue={false}
+        wrapperClassName="armada-slider-field armada-rgb-saturation"
+        onChange={(saturation: number) => setConfig({ ...config, saturation })}
+      />
+    </PanelSection>
   );
 }

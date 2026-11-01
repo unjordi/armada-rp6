@@ -13,21 +13,10 @@ const BACKLIGHT_ROOT: &str = "/sys/class/backlight";
 /// backlights. `ARMADA_BACKLIGHT_ROOT` allows the sysfs root to be overridden
 /// for development with a fixture; production defaults to `/sys/class/backlight`.
 pub(crate) fn screen_brightness_percent() -> Result<u8> {
-    let root: PathBuf = backlight_root();
-    let primary: Option<String> = env::var("ARMADA_PRIMARY_BACKLIGHT").ok();
-    screen_brightness_percent_at(&root, primary.as_deref())
-}
-
-/// The backlight root, from `ARMADA_BACKLIGHT_ROOT` or `/sys/class/backlight`.
-pub(crate) fn backlight_root() -> PathBuf {
-    env::var_os("ARMADA_BACKLIGHT_ROOT")
+    let root: PathBuf = env::var_os("ARMADA_BACKLIGHT_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(BACKLIGHT_ROOT))
-}
-
-/// `screen_brightness_percent` with the root and primary device given.
-pub(crate) fn screen_brightness_percent_at(root: &Path, primary: Option<&str>) -> Result<u8> {
-    let backlight: PathBuf = select_backlight(root, primary)?;
+        .unwrap_or_else(|| PathBuf::from(BACKLIGHT_ROOT));
+    let backlight: PathBuf = select_backlight(&root)?;
     let brightness: u32 = read_value(&backlight.join("brightness"))?;
     let maximum: u32 = read_value(&backlight.join("max_brightness"))?;
 
@@ -48,10 +37,10 @@ pub(crate) fn linked_brightness(screen_percent: u8, max_brightness: u8) -> u8 {
     scaled.clamp(1, 100) as u8
 }
 
-fn select_backlight(root: &Path, primary: Option<&str>) -> Result<PathBuf> {
-    if let Some(name) = primary {
+fn select_backlight(root: &Path) -> Result<PathBuf> {
+    if let Ok(name) = env::var("ARMADA_PRIMARY_BACKLIGHT") {
         if !name.is_empty() {
-            let path: PathBuf = root.join(name);
+            let path: PathBuf = root.join(&name);
             if path.is_dir() {
                 return Ok(path);
             }
@@ -68,11 +57,6 @@ fn select_backlight(root: &Path, primary: Option<&str>) -> Result<PathBuf> {
         .filter(|path| path.is_dir())
         .collect();
     devices.sort();
-    // A generic `backlight` node (e.g. a pwm-backlight wrapper) beside the
-    // panel's own node is not a second panel: prefer the named one.
-    if devices.len() > 1 {
-        devices.retain(|path| path.file_name().and_then(|name| name.to_str()) != Some("backlight"));
-    }
 
     match devices.len() {
         0 => bail!("no backlight devices found in {}", root.display()),
@@ -91,49 +75,4 @@ fn read_value(path: &Path) -> Result<u32> {
         .trim()
         .parse::<u32>()
         .with_context(|| format!("parse backlight value from {}", path.display()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn root(name: &str, devices: &[(&str, u32, u32)]) -> PathBuf {
-        let root: PathBuf =
-            env::temp_dir().join(format!("armada-rgb-backlight-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        for (device, brightness, maximum) in devices {
-            let dir: PathBuf = root.join(device);
-            fs::create_dir_all(&dir).unwrap();
-            fs::write(dir.join("brightness"), format!("{brightness}\n")).unwrap();
-            fs::write(dir.join("max_brightness"), format!("{maximum}\n")).unwrap();
-        }
-        root
-    }
-
-    #[test]
-    fn reads_the_only_backlight() {
-        let root: PathBuf = root("single", &[("panel", 50, 100)]);
-        assert_eq!(screen_brightness_percent_at(&root, None).unwrap(), 50);
-    }
-
-    #[test]
-    fn prefers_the_panel_over_a_generic_backlight_node() {
-        // Retroid Pocket 6: ae94000.dsi.0 (panel, 2417/4095) and backlight (600/1023).
-        let root: PathBuf = root("rp6", &[("ae94000.dsi.0", 2417, 4095), ("backlight", 600, 1023)]);
-        assert_eq!(screen_brightness_percent_at(&root, None).unwrap(), 59);
-    }
-
-    #[test]
-    fn two_panels_still_need_the_primary_backlight() {
-        let root: PathBuf = root("dual", &[("ae94000.dsi.0", 10, 100), ("ae96000.dsi.0", 90, 100)]);
-        let error: String = format!("{:#}", screen_brightness_percent_at(&root, None).unwrap_err());
-        assert!(error.contains("ARMADA_PRIMARY_BACKLIGHT"), "{error}");
-        assert_eq!(screen_brightness_percent_at(&root, Some("ae96000.dsi.0")).unwrap(), 90);
-    }
-
-    #[test]
-    fn the_primary_backlight_can_pick_the_generic_node() {
-        let root: PathBuf = root("explicit", &[("ae94000.dsi.0", 10, 100), ("backlight", 30, 100)]);
-        assert_eq!(screen_brightness_percent_at(&root, Some("backlight")).unwrap(), 30);
-    }
 }

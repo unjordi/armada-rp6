@@ -1,23 +1,15 @@
-use crate::effects::Effect;
 use crate::ColorCorrection;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 const CONFIG_VERSION: u32 = 1;
-const DEFAULT_SPEED: u16 = 100;
-const MAX_SPEED: u16 = 1000;
-pub(crate) const MIN_SYNC_SCALE: u16 = 10;
-pub(crate) const MAX_SYNC_SCALE: u16 = 200;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct LightingConfig {
     pub version: u32,
     pub enabled: bool,
-    /// Scale the painted brightness by the screen backlight, with
-    /// `max_brightness` as the ceiling. Composes with any effect. Older saves
-    /// called it `sync_brightness` (see `config::load` for their migration).
-    #[serde(default, alias = "sync_brightness")]
+    #[serde(default)]
     pub link_brightness: bool,
     pub brightness: u8,
     #[serde(default = "default_max_brightness")]
@@ -27,25 +19,6 @@ pub struct LightingConfig {
     pub saturation: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub correction: Option<ColorCorrection>,
-    /// Animation applied on top of the base color. `static` (the default)
-    /// keeps the original solid-color behaviour and is omitted when saved.
-    #[serde(default, skip_serializing_if = "Effect::is_static")]
-    pub effect: Effect,
-    /// Animation speed as a percentage (100 = default). Ignored by `static`.
-    #[serde(default = "default_speed", skip_serializing_if = "is_default_speed")]
-    pub speed: u16,
-    /// LED-vs-screen factor for linked brightness, in percent. `None` (the
-    /// default, omitted when saved) uses the device's `ARMADA_RGB_SYNC_SCALE`.
-    #[serde(default, alias = "sync_scale", skip_serializing_if = "Option::is_none")]
-    pub sync_scale: Option<u16>,
-}
-
-fn default_speed() -> u16 {
-    DEFAULT_SPEED
-}
-
-fn is_default_speed(speed: &u16) -> bool {
-    *speed == DEFAULT_SPEED
 }
 
 fn default_saturation() -> u8 {
@@ -67,9 +40,6 @@ impl Default for LightingConfig {
             color: "FFFFFF".into(),
             saturation: default_saturation(),
             correction: None,
-            effect: Effect::Static,
-            speed: DEFAULT_SPEED,
-            sync_scale: None,
         }
     }
 }
@@ -97,14 +67,6 @@ impl LightingConfig {
         }
         if let Some(correction) = &self.correction {
             correction.validate()?;
-        }
-        if let Some(scale) = self.sync_scale {
-            if !(MIN_SYNC_SCALE..=MAX_SYNC_SCALE).contains(&scale) {
-                bail!("sync scale must be between {MIN_SYNC_SCALE} and {MAX_SYNC_SCALE} percent");
-            }
-        }
-        if self.speed == 0 || self.speed > MAX_SPEED {
-            bail!("speed must be between 1 and {MAX_SPEED}");
         }
 
         self.color.make_ascii_uppercase();
@@ -180,37 +142,5 @@ mod tests {
             ..LightingConfig::default()
         };
         assert!(version.validate().is_err());
-    }
-
-    #[test]
-    fn sync_scale_is_optional_bounded_and_round_trips() {
-        let plain: LightingConfig = LightingConfig::default().validate().unwrap();
-        assert!(!serde_json::to_string(&plain).unwrap().contains("syncScale"), "omitted when unset");
-        let tuned: LightingConfig = LightingConfig { sync_scale: Some(60), ..LightingConfig::default() }
-            .validate()
-            .unwrap();
-        let back: LightingConfig = serde_json::from_str(&serde_json::to_string(&tuned).unwrap()).unwrap();
-        assert_eq!(back.sync_scale, Some(60));
-        for bad in [0, 9, 201] {
-            assert!(LightingConfig { sync_scale: Some(bad), ..LightingConfig::default() }.validate().is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn linked_brightness_is_a_modifier_independent_of_effect() {
-        let linked: LightingConfig = LightingConfig {
-            effect: Effect::Rainbow,
-            link_brightness: true,
-            ..LightingConfig::default()
-        }
-        .validate()
-        .unwrap();
-        assert_eq!(linked.effect, Effect::Rainbow, "orthogonal: does not replace the effect");
-        let saved: String = serde_json::to_string(&linked).unwrap();
-        assert!(saved.contains("\"linkBrightness\":true"), "{saved}");
-        assert!(!saved.contains("sync_brightness"), "{saved}");
-
-        let round_tripped: LightingConfig = serde_json::from_str(&saved).unwrap();
-        assert_eq!(round_tripped, linked);
     }
 }

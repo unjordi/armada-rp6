@@ -1,12 +1,10 @@
 import { call } from "@decky/api";
-import type { CalibrationState, CompatAppliedState, Config, CurvesState, FanCurve, FanSettings, InstalledGame, PowerConfig, RgbConfig, RgbEffect, Tweaks } from "./types";
+import type { CalibrationState, CompatAppliedState, Config, CurvesState, FanCurve, FanSettings, InstalledGame, PanelAttr, PanelCalibration, PanelRate, PanelStep, PowerConfig, RgbConfig, Tweaks } from "./types";
 
 export const getConfig = () => call<[], Config>("get_config");
 export const getInstalledGames = () => call<[], InstalledGame[]>("get_installed_games");
 export const getCompatMappedAppids = (tool: string) => call<[string], string[]>("get_compat_mapped_appids", tool);
 export const savePowerConfig = (data: PowerConfig) => call<[PowerConfig], Config>("save_power_config", data);
-export const setActivePowerProfile = (name: string) => call<[string], Config>("set_active_power_profile", name);
-export const getActivePowerProfile = () => call<[], string>("get_active_power_profile");
 export const saveTweaks = (data: Tweaks) => call<[Tweaks], Config>("save_tweaks", data);
 export const getCompatApplied = () => call<[], CompatAppliedState>("get_compat_applied");
 let compatAppliedSaveChain = Promise.resolve<unknown>(undefined);
@@ -20,11 +18,19 @@ export const saveCompatApplied = (appids: string[], protonDefault: string | null
 };
 export const setSwipeGesturesEnabled = (enabled: boolean) => call<[boolean], boolean>("set_swipe_gestures_enabled", enabled);
 export const setSshEnabled = (enabled: boolean) => call<[boolean], boolean>("set_ssh_enabled", enabled);
+export const setGyroEnabled = (enabled: boolean) => call<[boolean], boolean>("set_gyro_enabled", enabled);
 export const setMtpEnabled = (enabled: boolean) => call<[boolean], boolean>("set_mtp_enabled", enabled);
-export const setAblAutoEnabled = (enabled: boolean) => call<[boolean], boolean>("set_abl_auto_enabled", enabled);
+export const getPanelCalibration = () => call<[], PanelCalibration>("get_panel_calibration");
+export const getPanelRate = () => call<[], PanelRate>("get_panel_rate");
+export const calibratePanel = () => call<[], { value: number; hz: number }>("calibrate_panel");
+export const stepPanel = (attr: PanelAttr, direction: "faster" | "slower") =>
+  call<[PanelAttr, string], PanelStep>("step_panel", attr, direction);
+export const setPanel = (attr: PanelAttr, value: number) => call<[PanelAttr, number], boolean>("set_panel", attr, value);
+export const savePanel = (attr: PanelAttr) => call<[PanelAttr], { saved: number | null }>("save_panel", attr);
 export const setBottomScreenEnabled = (enabled: boolean) => call<[boolean], boolean>("set_bottom_screen_enabled", enabled);
 export const setBottomScreenBrightness = (brightness: number) => call<[number], number>("set_bottom_screen_brightness", brightness);
 export const getBottomScreenActive = () => call<[], boolean>("get_bottom_screen_active");
+export const setCompanionLocked = (locked: boolean) => call<[boolean], boolean>("set_companion_locked", locked);
 export const setDesktopMode = (value: string) => call<[string], string>("set_desktop_mode", value);
 export const setSleepMode = (value: string) => call<[string], string>("set_sleep_mode", value);
 export const getSleepLogsEnabled = () => call<[], boolean>("get_sleep_logs_enabled");
@@ -40,11 +46,8 @@ export const setRgb = (
   saturation: number,
   maxBrightness: number,
   brightness: number,
-  effect: RgbEffect,
-  speed: number,
-  syncScale: number | null,
 ) =>
-  call<[boolean, boolean, string, number, number, number, string, number, number | null], RgbConfig>(
+  call<[boolean, boolean, string, number, number, number], RgbConfig>(
     "set_rgb",
     enabled,
     linkBrightness,
@@ -52,22 +55,7 @@ export const setRgb = (
     saturation,
     maxBrightness,
     brightness,
-    effect,
-    speed,
-    syncScale,
   );
-// Opt-in gate for the charge indicator shown while asleep.
-export type ChargeIndicator = { enabled: boolean; brightness: number };
-export const getRgbChargeIndicatorEnabled = () => call<[], ChargeIndicator>("get_rgb_charge_indicator_enabled");
-export const setRgbChargeIndicatorEnabled = (enabled: boolean) =>
-  call<[boolean], ChargeIndicator>("set_rgb_charge_indicator_enabled", enabled);
-export const setRgbChargeIndicatorBrightness = (brightness: number) =>
-  call<[number], ChargeIndicator>("set_rgb_charge_indicator_brightness", brightness);
-// Presence-file toggle: keeps the previous OS deployment after updates.
-export const getKeepRollback = () => call<[], { enabled: boolean }>("get_keep_rollback");
-export const setKeepRollback = (enabled: boolean) => call<[boolean], { enabled: boolean }>("set_keep_rollback", enabled);
-// Release notes (markdown) of the pending update or the installed version; "" when none.
-export const getReleaseNotes = (which: "pending" | "current") => call<[string], string>("get_release_notes", which);
 export const getControllerState = () => call<[], CalibrationState>("get_controller_state");
 export const startCalibrationRecording = () => call<[], CalibrationState>("start_calibration_recording");
 export const saveCalibration = () => call<[], CalibrationState>("save_calibration");
@@ -79,5 +67,3 @@ export const getFansState = () => call<[], CurvesState>("get_fans_state");
 export const saveFanCurves = (fanCurves: Record<string, FanCurve>, fanSettings: FanSettings) =>
   call<[Record<string, FanCurve>, FanSettings], CurvesState>("save_fan_curves", fanCurves, fanSettings);
 export const getCurrentTemp = () => call<[], number | null>("get_current_temp");
-export const setBatteryFanEnabled = (enabled: boolean) => call<[boolean], CurvesState>("set_battery_fan_enabled", enabled);
-export const setBatteryFanProfile = (profile: string) => call<[string], CurvesState>("set_battery_fan_profile", profile);

@@ -10,41 +10,33 @@ from armada_control.calibration import (
 )
 from armada_control.config import build_config
 from armada_control.controller import set_controller_type
-from armada_control.power import read_active_profile, save_power_config, set_active_profile
-from armada_control.rgb import (
-    get_rgb,
-    get_rgb_charge_indicator_enabled,
-    set_rgb,
-    set_rgb_charge_indicator_brightness,
-    set_rgb_charge_indicator_enabled,
-)
+from armada_control.power import save_power_config
+from armada_control.rgb import get_rgb, set_rgb
 from armada_control.steam import compat_mapped_appids, installed_games
 from armada_control.system import (
     bottom_screen_active,
     reapply_perf,
+    panel_calibration,
+    panel_rate,
+    calibrate_panel,
+    save_panel,
+    set_panel,
+    step_panel,
     restart_game_mode,
-    set_abl_auto_enabled,
     set_bottom_screen_brightness,
     set_bottom_screen_enabled,
+    set_companion_locked,
     get_sleep_logs_enabled,
     set_mtp_enabled,
     set_desktop_mode,
+    set_gyro_enabled,
     set_sleep_mode,
     set_sleep_logs_enabled,
-    get_keep_rollback,
-    get_release_notes,
-    set_keep_rollback,
     set_ssh_enabled,
     set_swipe_gestures_enabled,
 )
 from armada_control.tweaks import load_compat_applied, save_compat_applied, save_tweaks
-from armada_control.fan_curves import (
-    get_state as get_fans_state,
-    save_all as save_fan_curves,
-    save_charging_pwm,
-    set_battery_fan_enabled,
-    set_battery_fan_profile,
-)
+from armada_control.fan_curves import get_state as get_fans_state, save_all as save_fan_curves, save_charging_pwm
 from armada_control.fan_sensors import get_current_temp
 
 
@@ -63,17 +55,6 @@ class Plugin:
         await asyncio.to_thread(save_power_config, data)
         return await self.get_config()
 
-    # Switches the live profile (org.armada.Power1 Profile), not just
-    # [general] default_profile -- the same effect as Steam's performance
-    # panel, so both surfaces stay in sync.
-    async def set_active_power_profile(self, name):
-        await asyncio.to_thread(set_active_profile, name)
-        return await self.get_config()
-
-    # Polled separately from get_config -- see hooks/useActivePowerProfile.
-    async def get_active_power_profile(self):
-        return await asyncio.to_thread(read_active_profile)
-
     async def save_tweaks(self, data):
         await asyncio.to_thread(save_tweaks, data)
         return await self.get_config()
@@ -90,17 +71,38 @@ class Plugin:
     async def set_ssh_enabled(self, enabled):
         return await asyncio.to_thread(set_ssh_enabled, enabled)
 
+    async def set_gyro_enabled(self, enabled):
+        return await asyncio.to_thread(set_gyro_enabled, enabled)
+
     async def set_mtp_enabled(self, enabled):
         return await asyncio.to_thread(set_mtp_enabled, enabled)
 
-    async def set_abl_auto_enabled(self, enabled):
-        return await asyncio.to_thread(set_abl_auto_enabled, enabled)
+    async def get_panel_calibration(self):
+        return await asyncio.to_thread(panel_calibration)
+
+    async def get_panel_rate(self):
+        return await asyncio.to_thread(panel_rate)
+
+    async def calibrate_panel(self):
+        return await asyncio.to_thread(calibrate_panel)
+
+    async def step_panel(self, attr, direction):
+        return await asyncio.to_thread(step_panel, attr, direction)
+
+    async def set_panel(self, attr, value):
+        return await asyncio.to_thread(set_panel, attr, value)
+
+    async def save_panel(self, attr):
+        return await asyncio.to_thread(save_panel, attr)
 
     async def set_bottom_screen_enabled(self, enabled):
         return await asyncio.to_thread(set_bottom_screen_enabled, enabled)
 
     async def set_bottom_screen_brightness(self, brightness):
         return await asyncio.to_thread(set_bottom_screen_brightness, brightness)
+
+    async def set_companion_locked(self, locked):
+        return await asyncio.to_thread(set_companion_locked, locked)
 
     async def get_bottom_screen_active(self):
         return await asyncio.to_thread(bottom_screen_active)
@@ -129,10 +131,7 @@ class Plugin:
     async def get_rgb(self):
         return await asyncio.to_thread(get_rgb)
 
-    async def set_rgb(
-        self, enabled, link_brightness, color, saturation, max_brightness, brightness,
-        effect=None, speed=None, sync_scale=None,
-    ):
+    async def set_rgb(self, enabled, link_brightness, color, saturation, max_brightness, brightness):
         return await asyncio.to_thread(
             set_rgb,
             enabled,
@@ -141,30 +140,7 @@ class Plugin:
             saturation,
             max_brightness,
             brightness,
-            effect,
-            speed,
-            sync_scale,
         )
-
-    # Opt-in gate for the charge indicator shown while asleep; applies
-    # immediately and is not part of armada-rgb's own config.
-    async def get_rgb_charge_indicator_enabled(self):
-        return await asyncio.to_thread(get_rgb_charge_indicator_enabled)
-
-    async def set_rgb_charge_indicator_enabled(self, enabled):
-        return await asyncio.to_thread(set_rgb_charge_indicator_enabled, enabled)
-
-    async def set_rgb_charge_indicator_brightness(self, brightness):
-        return await asyncio.to_thread(set_rgb_charge_indicator_brightness, brightness)
-
-    async def get_keep_rollback(self):
-        return await asyncio.to_thread(get_keep_rollback)
-
-    async def set_keep_rollback(self, enabled):
-        return await asyncio.to_thread(set_keep_rollback, enabled)
-
-    async def get_release_notes(self, which):
-        return await asyncio.to_thread(get_release_notes, which)
 
     async def get_controller_state(self):
         return await asyncio.to_thread(controller_state)
@@ -192,14 +168,6 @@ class Plugin:
 
     async def set_charging_fan_pwm(self, pwm):
         return await asyncio.to_thread(save_charging_pwm, pwm)
-
-    # Battery-temperature fan floor toggle; applies immediately, independent
-    # of the curve editor's Save flow.
-    async def set_battery_fan_enabled(self, enabled):
-        return await asyncio.to_thread(set_battery_fan_enabled, enabled)
-
-    async def set_battery_fan_profile(self, profile):
-        return await asyncio.to_thread(set_battery_fan_profile, profile)
 
     # Polled separately from get_fans_state -- see hooks/useCurrentTemp.
     async def get_current_temp(self):

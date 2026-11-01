@@ -1,3 +1,4 @@
+import json
 import os
 import shlex
 import subprocess
@@ -8,16 +9,17 @@ from .proc import clean_env
 
 
 OS_VERSION_PATH = Path("/usr/lib/armada/version")
-RELEASE_NOTES_TOOL = "/usr/libexec/armada/armada-release-notes"
-RELEASE_NOTES_SOURCES = ("pending", "current")
+MEM_SLEEP_PATH = Path("/sys/power/mem_sleep")
 SLEEP_DEBUG_COMMAND = Path("/usr/bin/armada-sleep-debug")
 SLEEP_DEBUG_MODULE = Path("/usr/lib/armada/armada_sleep_debug.py")
 SLEEP_LOG_HOOK_SOURCE = Path(__file__).with_name("sleep_debug_hook.sh")
 SLEEP_LOG_HOOK = Path("/etc/armada/sleep-debug-hook")
 SLEEP_LOG_DROPIN = Path("/etc/systemd/system/systemd-suspend.service.d/90-armada-sleep-debug.conf")
-# Sleep-mode labels and the mode menu are owned by the privileged backend (see
-# armada-control's sleep_modes); this module consumes them via `call` so there
-# is a single source of truth.
+PANEL_CALIBRATION = "/usr/libexec/armada/panel-calibration"
+SLEEP_MODE_LABELS = {
+    "s2idle": "Native",
+    "fake": "Fake",
+}
 DESKTOP_MODE_LABELS = {
     "mobile": "Plasma Mobile",
     "desktop": "Plasma Desktop"
@@ -81,13 +83,6 @@ def mtp_enabled():
     return active_s == "active"
 
 
-def abl_auto_enabled():
-    try:
-        return bool(call("get_abl_auto_enabled").get("enabled"))
-    except Exception:
-        return False
-
-
 def os_version():
     return read_text(OS_VERSION_PATH) or "unknown"
 
@@ -117,6 +112,18 @@ def set_swipe_gestures_enabled(enabled):
     return bool(call("set_swipe_gestures_enabled", enabled=enabled)["enabled"])
 
 
+def gyro_state():
+    try:
+        state = call("get_gyro")
+        return {"supported": bool(state["supported"]), "enabled": bool(state["enabled"])}
+    except Exception:
+        return {"supported": False, "enabled": False}
+
+
+def set_gyro_enabled(enabled):
+    return bool(call("set_gyro_enabled", enabled=enabled)["enabled"])
+
+
 def set_ssh_enabled(enabled):
     return bool(call("set_ssh_enabled", enabled=bool(enabled)).get("enabled"))
 
@@ -125,8 +132,37 @@ def set_mtp_enabled(enabled):
     return bool(call("set_mtp_enabled", enabled=bool(enabled)).get("enabled"))
 
 
-def set_abl_auto_enabled(enabled):
-    return bool(call("set_abl_auto_enabled", enabled=bool(enabled)).get("enabled"))
+def panel_tool(mode, *args, timeout=5):
+    proc = run_cmd([PANEL_CALIBRATION, mode, *args], timeout=timeout)
+    if proc is None or proc.returncode != 0:
+        raise RuntimeError(f"panel-calibration {mode} failed")
+    return json.loads(proc.stdout) if proc.stdout.strip() else None
+
+
+def panel_calibration():
+    return panel_tool("status")
+
+
+def panel_rate():
+    return panel_tool("rate")
+
+
+def step_panel(attr, direction):
+    return panel_tool("step", attr, direction)
+
+
+def set_panel(attr, value):
+    panel_tool("set", attr, str(int(value)))
+    return True
+
+
+def save_panel(attr):
+    return panel_tool("save", attr)
+
+
+def calibrate_panel():
+    # A run is about a dozen 1 s readings at worst.
+    return panel_tool("calibrate", timeout=60)
 
 
 def bottom_screen_enabled():
@@ -161,6 +197,10 @@ def set_bottom_screen_brightness(brightness):
     return int(call("set_bottom_screen_brightness", brightness=brightness).get("brightness", 0))
 
 
+def set_companion_locked(locked):
+    return bool(call("set_companion_locked", locked=bool(locked)).get("locked"))
+
+
 def desktop_mode() -> str:
     try:
         value = str(call("get_desktop_mode").get("value", ""))
@@ -180,18 +220,9 @@ def desktop_modes():
     return [{"data": mode, "label": DESKTOP_MODE_LABELS[mode]} for mode in modes]
 
 def sleep_modes():
-    # Single source of truth: the privileged backend owns the fleet's sleep-mode
-    # menu (which modes exist, and which are greyed out because the model is not
-    # validated for deep). The plugin consumes it rather than re-deriving from
-    # mem_sleep, so display and enforcement never drift. If the backend is
-    # unreachable, fall back to the always-safe "fake" only.
-    try:
-        modes = call("get_sleep_modes").get("modes")
-        if isinstance(modes, list):
-            return modes
-    except Exception:
-        pass
-    return [{"data": "fake", "label": "Fake", "disabled": False}]
+    advertised = {word.strip("[]") for word in read_text(MEM_SLEEP_PATH).split()}
+    modes = (["s2idle"] if "s2idle" in advertised else []) + ["fake"]
+    return [{"data": mode, "label": SLEEP_MODE_LABELS[mode]} for mode in modes]
 
 
 def set_sleep_mode(value):
@@ -289,23 +320,92 @@ def reapply_perf():
     return call("reapply_perf")
 
 
+def at_most(freqs, target):
+    below = [freq for freq in freqs if freq <= target]
+    return below[-1] if below else freqs[0] if freqs else 0
+
+
+def freq_list(path):
+    return sorted(int(v) for v in read_text(path).split() if v.isdigit())
+
+
+def gpu_devfreq(sysfs):
+    devfreq = sysfs / "class" / "devfreq"
+    for path in sorted(devfreq.glob("*.gpu")):
+        if (path / "available_frequencies").exists():
+            return path
+    for path in sorted(devfreq.glob("*")):
+        if "gpu" in path.name.lower() and (path / "governor").exists() and (path / "available_frequencies").exists():
+            return path
+    return None
+
+
+def cpu_policy_freqs(policy):
+    freqs = freq_list(policy / "scaling_available_frequencies")
+    if freqs:
+        return freqs
+    low = read_text(policy / "cpuinfo_min_freq")
+    high = read_text(policy / "cpuinfo_max_freq")
+    if low.isdigit() and high.isdigit():
+        return [int(low), int(high)]
+    return []
+
+
+def cpu_list_text(cpus):
+    if cpus == list(range(cpus[0], cpus[-1] + 1)):
+        return str(cpus[0]) if len(cpus) == 1 else f"{cpus[0]}-{cpus[-1]}"
+    return ",".join(str(cpu) for cpu in cpus)
+
+
+def cpu_policy_cpus(policy, policy_id):
+    for name in ("related_cpus", "affected_cpus"):
+        cpus = sorted(int(v) for v in read_text(policy / name).split() if v.isdigit())
+        if cpus:
+            return cpu_list_text(cpus)
+    return str(policy_id)
+
+
+def cpu_policies(sysfs):
+    policies = []
+    for policy in (sysfs / "devices" / "system" / "cpu" / "cpufreq").glob("policy*"):
+        suffix = policy.name.removeprefix("policy")
+        if not suffix.isdigit():
+            continue
+        khz = sorted(cpu_policy_freqs(policy))
+        if khz:
+            policy_id = int(suffix)
+            policies.append({
+                "id": policy_id,
+                "cpus": cpu_policy_cpus(policy, policy_id),
+                "khz": khz,
+                "mhz": [k // 1000 for k in khz],
+            })
+    return sorted(policies, key=lambda policy: policy["id"])
+
+
+def freq_limits(env=None, sysfs=Path("/sys")):
+    env = device_env() if env is None else env
+    gpu = gpu_devfreq(sysfs)
+    gpu_hz = freq_list(gpu / "available_frequencies") if gpu else []
+    stock = str(env.get("ARMADA_GPU_STOCK_MAX_MHZ", "")).strip()
+    stock_hz = 0
+    if gpu_hz:
+        stock_hz = gpu_hz[-1]
+        if stock.isdigit() and int(stock) > 0:
+            stock_hz = at_most(gpu_hz, int(stock) * 1_000_000 + 999_999)
+    return {
+        "gpuMhz": list(dict.fromkeys(hz // 1_000_000 for hz in gpu_hz)),
+        "gpuStockMaxMhz": stock_hz // 1_000_000,
+        "gpuStockHz": stock_hz,
+        "gpuHz": gpu_hz,
+        "cpuPolicies": cpu_policies(sysfs),
+        "cpuTopology": {
+            "big": str(env.get("ARMADA_BIG_CORES", "")).strip(),
+            "prime": str(env.get("ARMADA_PRIME_CORES", "")).strip(),
+            "little": str(env.get("ARMADA_LITTLE_CORES", "")).strip(),
+        },
+    }
+
+
 def restart_game_mode():
     return bool(call("restart_game_mode").get("ok"))
-
-
-def get_keep_rollback():
-    return call("get_keep_rollback")
-
-
-def set_keep_rollback(enabled):
-    return call("set_keep_rollback", enabled=enabled)
-
-
-# Markdown notes of the pending update or the installed version; "" when none.
-def get_release_notes(which):
-    if which not in RELEASE_NOTES_SOURCES:
-        return ""
-    result = run_cmd([RELEASE_NOTES_TOOL, which], timeout=30)
-    if result is None or result.returncode != 0:
-        return ""
-    return result.stdout or ""

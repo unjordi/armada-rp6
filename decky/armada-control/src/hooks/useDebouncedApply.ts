@@ -1,6 +1,5 @@
 import { toaster } from "@decky/api";
 import { useEffect, useRef } from "react";
-import { friendlyError } from "../lib/errors";
 
 // Module-level so a closed panel's last change still lands before changes from a reopened one.
 let queue: Promise<void> = Promise.resolve();
@@ -35,7 +34,7 @@ export function useDebouncedApply(
           if (current === request.current) show(result);
         } catch (error) {
           if (current !== request.current) return;
-          toaster.toast({ title: errorTitle, body: friendlyError(error) });
+          toaster.toast({ title: errorTitle, body: String(error) });
           await read().then((saved) => { if (current === request.current) show(saved); }, () => {});
         }
       });

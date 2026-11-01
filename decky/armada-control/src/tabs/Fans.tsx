@@ -1,16 +1,14 @@
-import { toaster } from "@decky/api";
 import { Field, PanelSection, showModal } from "@decky/ui";
 import { useCallback, useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { getFansState, saveFanCurves, setBatteryFanEnabled, setBatteryFanProfile } from "../backend";
+import { getFansState, saveFanCurves } from "../backend";
 import { CreateCurveModal } from "../components/CreateCurveModal";
 import { FanCurveEditor } from "../components/FanCurveEditor";
 import { FanCurveEditorModal } from "../components/FanCurveEditorModal";
-import { ButtonRow, SelectEdit, ToggleRow } from "../components/widgets";
+import { ButtonRow } from "../components/widgets";
 import { useCurrentTemp } from "../hooks/useCurrentTemp";
 import { useFanCurvesSave } from "../hooks/useFanCurvesSave";
-import { t, translateLabel } from "../i18n";
-import { friendlyError } from "../lib/errors";
+import { t } from "../i18n";
 import { clone } from "../lib/util";
 import type { Config, CurvesState } from "../types";
 
@@ -32,7 +30,7 @@ export function Fans({ setConfig }: {
       const activeCurve = next.profiles?.[next.activeProfile]?.fan_curve;
       setSelectedCurve(activeCurve && names.includes(activeCurve) ? activeCurve : names[0] || "");
     } catch (error) {
-      setMessage(friendlyError(error, t("fans.loadError")));
+      setMessage(String(error));
     }
   }, []);
   useEffect(() => {
@@ -53,40 +51,6 @@ export function Fans({ setConfig }: {
     save: saveFanCurves,
     onSaved: syncSharedFanCurves,
   });
-
-  // Applies immediately, like the Settings tab's toggles: it gates
-  // armada-powerd's battery-temperature floor, it is not a curve edit.
-  const [batteryFanUpdating, setBatteryFanUpdating] = useState(false);
-  const toggleBatteryFan = async (enabled: boolean) => {
-    setDraft((current) => (current ? { ...current, batteryFanEnabled: enabled } : current));
-    setBatteryFanUpdating(true);
-    try {
-      const next = await setBatteryFanEnabled(enabled);
-      setSaved(next);
-      setDraft((current) => (current ? { ...current, batteryFanEnabled: next.batteryFanEnabled } : current));
-    } catch (error) {
-      setDraft((current) => (current ? { ...current, batteryFanEnabled: !enabled } : current));
-      toaster.toast({ title: t("fans.batteryFloorError"), body: friendlyError(error) });
-    } finally {
-      setBatteryFanUpdating(false);
-    }
-  };
-
-  const changeBatteryProfile = async (profile: string) => {
-    const previous = draft?.batteryFanProfile ?? "";
-    setDraft((current) => (current ? { ...current, batteryFanProfile: profile } : current));
-    setBatteryFanUpdating(true);
-    try {
-      const next = await setBatteryFanProfile(profile);
-      setSaved(next);
-      setDraft((current) => (current ? { ...current, batteryFanProfile: next.batteryFanProfile } : current));
-    } catch (error) {
-      setDraft((current) => (current ? { ...current, batteryFanProfile: previous } : current));
-      toaster.toast({ title: t("fans.batteryProfileError"), body: friendlyError(error) });
-    } finally {
-      setBatteryFanUpdating(false);
-    }
-  };
 
   if (!draft) {
     return (
@@ -132,25 +96,6 @@ export function Fans({ setConfig }: {
         onOpenCreateCurve={openCreateCurve}
         currentTemp={currentTemp}
       />
-      <PanelSection title={t("fans.batteryFloor")}>
-        <ToggleRow
-          label={t("fans.batteryFloorToggle")}
-          description={t("fans.batteryFloorDescription")}
-          value={draft.batteryFanEnabled}
-          disabled={batteryFanUpdating}
-          onChange={toggleBatteryFan}
-        />
-        <SelectEdit
-          label={t("fans.batteryProfile")}
-          value={draft.batteryFanProfile}
-          options={Object.entries(draft.batteryFanProfiles).map(([name, profile]) => ({
-            data: name,
-            label: translateLabel(profile.label),
-          }))}
-          onChange={changeBatteryProfile}
-          disabled={!draft.batteryFanEnabled || batteryFanUpdating}
-        />
-      </PanelSection>
       <PanelSection title={t("fans.saveSection")}>
         <ButtonRow layout="below" onClick={handleSave} disabled={!dirty || saving}>
           {saving ? t("common.saving") : t("common.saveChanges")}

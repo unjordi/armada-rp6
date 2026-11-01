@@ -11,43 +11,27 @@ if [[ "$mode" == "fake" ]]; then
     exec "$fake_suspend" sleep
 fi
 
-if [[ "$mode" == "s2idle" || "$mode" == "deep" ]]; then
-    mem_sleep=${ARMADA_MEM_SLEEP_PATH:-/sys/power/mem_sleep}
-    if [[ ! -w "$mem_sleep" ]] ||
-        ! grep -qw "$mode" "$mem_sleep"; then
-        echo "suspend-dispatch: unsupported sleep mode $mode; using fake suspend" >&2
-        exec "$fake_suspend" sleep
-    fi
-    if ! echo "$mode" >"$mem_sleep"; then
-        echo "suspend-dispatch: failed to select sleep mode $mode; using fake suspend" >&2
-        exec "$fake_suspend" sleep
-    fi
-else
+if [[ "$mode" != "s2idle" ]]; then
     echo "suspend-dispatch: invalid sleep mode $mode; using fake suspend" >&2
     exec "$fake_suspend" sleep
 fi
 
+mem_sleep=${ARMADA_MEM_SLEEP_PATH:-/sys/power/mem_sleep}
+if [[ ! -w "$mem_sleep" ]] || ! grep -qw "$mode" "$mem_sleep"; then
+    echo "suspend-dispatch: unsupported sleep mode $mode; using fake suspend" >&2
+    exec "$fake_suspend" sleep
+fi
+if ! echo "$mode" >"$mem_sleep"; then
+    echo "suspend-dispatch: failed to select sleep mode $mode; using fake suspend" >&2
+    exec "$fake_suspend" sleep
+fi
+
 # Real suspend: prefer systemd-sleep so its sleep hooks and process freeze run.
-sleep_bin=${ARMADA_SYSTEMD_SLEEP:-}
-if [[ -z "$sleep_bin" ]]; then
-    for b in /usr/lib/systemd/systemd-sleep /lib/systemd/systemd-sleep; do
-        [[ -x "$b" ]] && { sleep_bin=$b; break; }
-    done
+if [[ -n "${ARMADA_SYSTEMD_SLEEP:-}" ]]; then
+    exec "$ARMADA_SYSTEMD_SLEEP" suspend "$@"
 fi
-if [[ -n "$sleep_bin" ]]; then
-    # Dark resume (deep only, per-device opt-in): keep user sessions frozen and
-    # sleep again while the only wake reason was the charger. Any failure to
-    # set it up falls through to today's plain suspend. See dark-resume-lib.
-    # In charger mode (booted by cable while off) armada-charger owns the loop.
-    if [[ "$mode" == deep && "${ARMADA_DARK_RESUME:-0}" == 1 &&
-          ! -e "${ARMADA_CHARGER_MODE_FLAG:-/run/armada/charger-mode}" ]]; then
-        if source "${ARMADA_DARK_RESUME_LIB:-/usr/lib/armada/dark-resume-lib}" 2>/dev/null; then
-            dark_resume_loop "$sleep_bin" "$@"
-            exit $?
-        fi
-        echo "suspend-dispatch: dark-resume lib missing; plain suspend" >&2
-    fi
-    exec "$sleep_bin" suspend "$@"
-fi
+for sleep_bin in /usr/lib/systemd/systemd-sleep /lib/systemd/systemd-sleep; do
+    [[ -x "$sleep_bin" ]] && exec "$sleep_bin" suspend "$@"
+done
 # No systemd-sleep found: write the state directly rather than leave sleep dead.
 echo mem > /sys/power/state

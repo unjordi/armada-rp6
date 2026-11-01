@@ -6,7 +6,6 @@ import {
   showModal,
 } from "@decky/ui";
 import { useEffect, useRef, useState } from "react";
-import { friendlyError } from "../lib/errors";
 import {
   beginCalibrationSession,
   endCalibrationSession,
@@ -148,7 +147,7 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
         if (cancelled) return;
         setState(next);
       } catch (error) {
-        if (!cancelled) setState({ supported: false, reason: friendlyError(error, t("calibration.unavailable")), controls: {} } as CalibrationState);
+        if (!cancelled) setState({ supported: false, reason: String(error), controls: {} } as CalibrationState);
       } finally {
         inflight = false;
       }
@@ -196,7 +195,7 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
         setState(await startCalibrationRecording());
         setPhase("recording");
       } catch (error) {
-        setState((current) => ({ ...(current || {}), supported: false, reason: friendlyError(error, t("calibration.updateError")) } as CalibrationState));
+        setState((current) => ({ ...(current || {}), supported: false, reason: String(error) } as CalibrationState));
       }
     });
   const save = () =>
@@ -206,7 +205,7 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
         setState(next);
         setPhase("idle");
       } catch (error) {
-        setState((current) => ({ ...(current || {}), supported: false, reason: friendlyError(error, t("calibration.updateError")) } as CalibrationState));
+        setState((current) => ({ ...(current || {}), supported: false, reason: String(error) } as CalibrationState));
         setPhase("idle");
       }
     });
@@ -216,7 +215,7 @@ function CalibrationModal({ closeModal }: { closeModal?: () => void }) {
         const next = await resetCalibration();
         setState(next);
       } catch (error) {
-        setState((current) => ({ ...(current || {}), supported: false, reason: friendlyError(error, t("calibration.updateError")) } as CalibrationState));
+        setState((current) => ({ ...(current || {}), supported: false, reason: String(error) } as CalibrationState));
       }
     });
 

@@ -4,8 +4,31 @@ export interface PowerProfile {
   cpu_max: string;
   cpu_underclock: string;
   gpu_max: string;
+  gpu_max_mhz: number | null;
   gpu_min: string;
+  gpu_min_mhz: number | null;
   fan_curve: string;
+  [key: `cpu_max_policy${number}`]: number | null;
+}
+
+export interface CpuPolicy {
+  id: number;
+  cpus: string;
+  khz: number[];
+  mhz: number[];
+}
+
+export interface FreqLimits {
+  gpuMhz: number[];
+  gpuStockMaxMhz: number;
+  cpuPolicies: CpuPolicy[];
+  cpuTopology?: CpuTopology;
+}
+
+export interface CpuTopology {
+  big: string;
+  prime: string;
+  little: string;
 }
 
 export interface FanCurve {
@@ -109,18 +132,6 @@ export interface CalibrationProgress {
   ready: boolean;
 }
 
-// Effects accepted by `armada-rgb set --effect`. screen_sync is a per-side
-// ambilight driven by gamescope screenshots. Brightness sync is not an effect:
-// it is `linkBrightness` and combines with any effect here.
-export type RgbEffect =
-  | "static"
-  | "breathing"
-  | "color_cycle"
-  | "rainbow"
-  | "load"
-  | "battery"
-  | "screen_sync";
-
 export interface RgbConfig {
   version: number;
   enabled: boolean;
@@ -129,11 +140,6 @@ export interface RgbConfig {
   brightness: number;
   color: string;
   saturation: number;
-  // Omitted by armada-rgb when at their defaults (static / 100).
-  effect?: RgbEffect;
-  speed?: number;
-  // LED-vs-screen factor in percent; omitted while the device default applies.
-  syncScale?: number;
 }
 
 export interface GameRef {
@@ -152,10 +158,7 @@ export interface PerfInfo {
 export interface Config {
   power: PowerConfig;
   powerDefaults: PowerConfig;
-  // The profile armada-powerd is running right now (live daemon state),
-  // independent of power.general.default_profile. Steam's performance panel
-  // drives the same state, so Power.tsx treats it as "what's active".
-  activePowerProfile: string;
+  freqLimits: FreqLimits;
   tweaks: Tweaks;
   installedGames: InstalledGame[];
   fexProfiles: Record<string, FexProfile>;
@@ -163,15 +166,10 @@ export interface Config {
   envPresets: EnvPreset[];
   perf?: PerfInfo;
   cpuDeviceClass: string;
-  // Top-bar profile glyph geometry from the device conf; empty when unset.
-  topBarIndicator?: { sizePx: string; marginPx: string };
   rgbSupported: boolean;
-  // Device LED-vs-screen factor (ARMADA_RGB_SYNC_SCALE) in percent.
-  rgbSyncScaleDefault?: number;
   protonDefaults: string[];
   osVersion: string;
   ablVersion: string;
-  ablAutoEnabled: boolean;
   bottomScreenSupported: boolean;
   bottomScreenEnabled: boolean;
   bottomScreenBrightnessSupported: boolean;
@@ -180,6 +178,7 @@ export interface Config {
   chargingFanPwm: number;
   sshEnabled: boolean;
   swipeGesturesEnabled: boolean;
+  gyro: { supported: boolean; enabled: boolean };
   mtpEnabled: boolean;
   desktopMode: string;
   desktopModes: DropdownChoice[];
@@ -195,9 +194,6 @@ export interface Config {
 export interface DropdownChoice {
   data: string;
   label: string;
-  // Present but not selectable (e.g. deep sleep on a model not yet validated for
-  // it): the option is shown greyed with a "(not validated)" cue instead of hidden.
-  disabled?: boolean;
 }
 
 export interface ProfileSummary {
@@ -222,17 +218,25 @@ export interface CurvesState {
   activeProfile: string;
   // Live marker instead polls get_current_temp (see hooks/useCurrentTemp).
   currentTemp: number | null;
-  // Gate for armada-powerd's battery-temperature fan floor. The curve itself
-  // stays factory-only; this turns the behaviour on/off and applies
-  // immediately (not part of the curve editor's Save flow).
-  batteryFanEnabled: boolean;
-  // Selected [battery_fan_curve.<name>] profile; applies immediately like the toggle.
-  batteryFanProfile: string;
-  batteryFanProfiles: Record<string, BatteryFanProfile>;
 }
 
-export interface BatteryFanProfile {
-  label: string;
-  curve: string;
-  charging_boost: number;
+export type PanelAttr = "frame_len_120" | "frame_len_60";
+export type PanelValues = Record<PanelAttr, number | null>;
+
+export interface PanelCalibration {
+  supported: boolean;
+  saved?: PanelValues;
+  live?: PanelValues;
+  defaults?: PanelValues;
+}
+
+export interface PanelRate {
+  hz: number | null;
+  attr: PanelAttr | null;
+}
+
+export interface PanelStep {
+  value: number;
+  hz: number | null;
+  limit: "range" | null;
 }

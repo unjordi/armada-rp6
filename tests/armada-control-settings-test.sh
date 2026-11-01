@@ -171,30 +171,11 @@ assert plugin_system.bottom_screen_brightness() == 50
 assert plugin_system.bottom_screen_active()
 assert plugin_system.set_bottom_screen_brightness(40) == 40
 
-# Sleep-mode menu is ONE source of truth: the privileged backend owns it and the
-# Decky plugin consumes it via `call`, instead of re-deriving from mem_sleep.
-# Wire the plugin's call() to the real backend action so the test proves the
-# plugin returns exactly what the backend computes.
-def fake_plugin_call_sleep(action, **payload):
-    if action == "get_sleep_modes":
-        return control.action_get_sleep_modes({})
-    return fake_plugin_call(action, **payload)
-
-
-plugin_system.call = fake_plugin_call_sleep
-
-# A model VALIDATED for deep (RP6-style: ARMADA_SUSPEND_DEEP_VALIDATED=1) offers
-# deep enabled, and the plugin returns the backend menu verbatim.
-control.device_env = lambda: {"ARMADA_SUSPEND_DEEP_VALIDATED": "1"}
-control.MEM_SLEEP_PATH.write_text("[s2idle] deep\n")
-validated_menu = [
-    {"data": "s2idle", "label": "Native", "disabled": False},
-    {"data": "deep", "label": "Deep", "disabled": False},
-    {"data": "fake", "label": "Fake", "disabled": False},
+plugin_system.MEM_SLEEP_PATH = control.MEM_SLEEP_PATH
+assert plugin_system.sleep_modes() == [
+    {"data": "s2idle", "label": "Native"},
+    {"data": "fake", "label": "Fake"},
 ]
-assert control.sleep_modes() == validated_menu
-assert plugin_system.sleep_modes() == validated_menu
-assert control.enabled_sleep_modes() == {"s2idle", "deep", "fake"}
 
 control.SLEEP_CONFIG.write_text("future_sleep_setting=keep\n")
 control.NM_IGNORE_SLEEP.touch()
@@ -211,47 +192,16 @@ assert control.SLEEP_CONFIG.read_text() == (
 )
 assert control.NM_IGNORE_SLEEP.exists()
 
-# deep is accepted only on a validated model.
 control.MEM_SLEEP_PATH.write_text("[s2idle] deep\n")
-assert control.action_set_sleep_mode({"value": "deep"}) == {"value": "deep"}
-assert control.MEM_SLEEP_PATH.read_text() == "deep\n"
-assert control.SLEEP_CONFIG.read_text() == (
-    "future_sleep_setting=keep\nsuspend_mode=deep\n"
-)
-assert not control.NM_IGNORE_SLEEP.exists()
-
-# Fleet gate, UI + defense-in-depth: an UNVALIDATED model with a deep-capable
-# kernel OFFERS deep but greyed (disabled), the plugin shows the same greyed
-# menu, and set_sleep_mode REJECTS deep even though it appears in the menu.
-control.device_env = lambda: {}  # no ARMADA_SUSPEND_DEEP_VALIDATED => not validated
-control.MEM_SLEEP_PATH.write_text("[s2idle] deep\n")
-unvalidated_menu = [
-    {"data": "s2idle", "label": "Native", "disabled": False},
-    {"data": "deep", "label": "Deep", "disabled": True},
-    {"data": "fake", "label": "Fake", "disabled": False},
-]
-assert control.sleep_modes() == unvalidated_menu
-assert plugin_system.sleep_modes() == unvalidated_menu
-assert control.enabled_sleep_modes() == {"s2idle", "fake"}
 try:
     control.action_set_sleep_mode({"value": "deep"})
 except RuntimeError:
     pass
 else:
-    raise AssertionError("deep accepted on an unvalidated model")
+    raise AssertionError("retired deep sleep setting was accepted")
 
-# Kernel gate: a mode the kernel does not advertise is omitted entirely (not just
-# greyed). With s2idle gone and deep unvalidated, only fake stays selectable.
 control.MEM_SLEEP_PATH.write_text("[deep]\n")
-assert control.sleep_modes() == [
-    {"data": "deep", "label": "Deep", "disabled": True},
-    {"data": "fake", "label": "Fake", "disabled": False},
-]
-assert plugin_system.sleep_modes() == [
-    {"data": "deep", "label": "Deep", "disabled": True},
-    {"data": "fake", "label": "Fake", "disabled": False},
-]
-assert control.enabled_sleep_modes() == {"fake"}
+assert plugin_system.sleep_modes() == [{"data": "fake", "label": "Fake"}]
 try:
     control.action_set_sleep_mode({"value": "s2idle"})
 except RuntimeError:
@@ -289,16 +239,9 @@ printf '[s2idle] deep\n' >"$WORK/mem_sleep"
 printf 'suspend_mode=s2idle\n' >"$WORK/sleep.conf"
 device_env "AYN Odin 2" s2idle
 
-# Fleet gate: AYN Odin 2 is NOT validated for deep, so a user sleep.conf deep
-# override does NOT activate deep -- it falls back to the profile default
-# (s2idle), even though the kernel advertises deep.
 printf 'suspend_mode=deep\n' >"$WORK/sleep.conf"
 device_env "AYN Odin 2" s2idle
 
-# The RP6 IS validated for deep, so the same deep override is honored.
-device_env "Retroid Pocket 6" deep
-
-# Other override modes are still respected on every model (gate only touches deep).
 printf 'suspend_mode = s2idle\nsuspend_mode = fake\n' >"$WORK/sleep.conf"
 device_env "AYN Odin 2" fake
 
@@ -314,33 +257,26 @@ printf '[deep]\n' >"$WORK/mem_sleep"
 printf 'suspend_mode=s2idle\n' >"$WORK/sleep.conf"
 device_env "Retroid Pocket 5" fake
 
-# Unvalidated model, kernel only advertises deep, user overrides to deep: the
-# fleet gate drops deep to the profile default (s2idle), which the kernel does
-# not advertise, so it degrades to fake -- never deep on unvetted hardware.
 printf 'suspend_mode=deep\n' >"$WORK/sleep.conf"
 device_env "AYN Odin 2" fake
-
-# The RP6 (validated) still runs deep when it is the only advertised mode.
-device_env "Retroid Pocket 6" deep
 
 : >"$WORK/mem_sleep"
 rm -f "$WORK/sleep.conf"
 device_env "Retroid Pocket 5" fake
 
-# Boot-time quirks reapply the saved mode and NetworkManager policy. Uses the
-# RP6 (validated for deep) so the saved deep mode is genuinely reapplied.
+# Boot-time quirks reapply the saved mode and NetworkManager policy.
 printf '[s2idle] deep\n' >"$WORK/mem_sleep"
 printf 'future_sleep_setting=keep\nsuspend_mode=deep\n' >"$WORK/sleep.conf"
 touch "$WORK/ignore-sleep"
 env ARMADA_DEVICE_ENV="$DEVICE_ENV" \
     ARMADA_DEVICE_DIR="$ROOT/system_files/usr/lib/armada/devices" \
-    ARMADA_MODEL="Retroid Pocket 6" ARMADA_SLEEP_CONFIG="$WORK/sleep.conf" \
+    ARMADA_MODEL="AYN Odin 2" ARMADA_SLEEP_CONFIG="$WORK/sleep.conf" \
     ARMADA_MEM_SLEEP_PATH="$WORK/mem_sleep" \
     ARMADA_NM_IGNORE_SLEEP="$WORK/ignore-sleep" \
     "$DEVICE_QUIRKS" >/dev/null
-grep -x 'deep' "$WORK/mem_sleep" >/dev/null
+grep -x 's2idle' "$WORK/mem_sleep" >/dev/null
 [[ "$(cat "$WORK/sleep.conf")" == "future_sleep_setting=keep
-suspend_mode=deep" ]]
+suspend_mode=s2idle" ]]
 [[ ! -e "$WORK/ignore-sleep" ]]
 
 printf '[s2idle] deep\n' >"$WORK/mem_sleep"
@@ -386,9 +322,8 @@ grep -x 'suspend' "$WORK/sleep-call" >/dev/null
 
 printf '[s2idle] deep\n' >"$WORK/mem_sleep"
 dispatch deep
-grep -x 'deep' "$WORK/mem_sleep" >/dev/null
-grep -x 'suspend' "$WORK/sleep-call" >/dev/null
-[[ ! -e "$WORK/fake-sleep-call" ]]
+grep -x 'sleep' "$WORK/fake-sleep-call" >/dev/null
+[[ ! -e "$WORK/sleep-call" ]]
 
 printf '[deep]\n' >"$WORK/mem_sleep"
 dispatch s2idle

@@ -88,7 +88,7 @@ package name:
     [ -d "packages/{{ name }}" ] || { echo "unknown package: {{ name }}" >&2; exit 1; }
     hash="$(packages/package-hash.sh {{ name }})"
     buildah build \
-        -f "$(packages/containerfile-for.sh {{ name }})" \
+        -f packages/Containerfile \
         --target "out-{{ name }}" \
         --layers \
         --build-arg "BUILDER_IMAGE=${BUILDER_IMAGE}" \
@@ -296,7 +296,7 @@ build-armada-image $target_image=("localhost/" + image_name) $tag=default_tag: (
     if [[ -n "$version" && "$version" != unknown ]]; then
         export OUT="output/armada-${version}.img.gz"
     fi
-    ./post_process/finalize-armada-image.sh output/image/disk.raw
+    ./post_process/finalize-armada-image.sh output/image/disk.raw "${target_image}:${tag}"
 
 [group('Build Virtual Machine Image')]
 rebuild-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "qcow2" "disk_config/disk.toml")

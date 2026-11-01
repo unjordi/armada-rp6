@@ -1,5 +1,4 @@
 import { en, type TranslationKey } from "./locales/en";
-import { es } from "./locales/es";
 import { zhCN } from "./locales/zh-CN";
 import { ptBR } from "./locales/pt-BR";
 import { ptPT } from "./locales/pt-PT";
@@ -9,7 +8,6 @@ type Variables = Record<string, string | number>;
 
 export const localeStrings = {
   en,
-  es,
   "zh-CN": zhCN,
   "pt-BR": ptBR,
   "pt-PT": ptPT,
@@ -23,9 +21,6 @@ export function localeFromLanguage(language: unknown): Locale | null {
   if (["schinese", "steamchina-schinese", "zh", "zh-cn", "zh-hans", "zh-sg"].includes(normalized)) return "zh-CN";
   if (["pt-br", "brazilian", "pt-brasil"].includes(normalized)) return "pt-BR";
   if (["pt", "pt-pt", "portuguese"].includes(normalized)) return "pt-PT";
-  // Steam names both of its Spanish UIs ("spanish", "latam"); BCP 47 tags
-  // cover any regional variant ("es-419", "es-MX").
-  if (["spanish", "latam", "es"].includes(normalized) || normalized.startsWith("es-")) return "es";
   return normalized ? "en" : null;
 }
 
