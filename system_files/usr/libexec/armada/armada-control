@@ -20,28 +20,8 @@ import armada_perf
 
 SOCKET = Path("/run/armada/control.sock")
 SESSION_SOCKET = Path(armada_perf.SESSION_SOCKET)
-ABL_VERSION_TOOL = "/usr/lib/armada/abl-version"
+ABL_VERSION_TOOL = "/usr/libexec/openabl-updater/abl-version"
 RGB_TOOL = "/usr/bin/armada-rgb"
-# Effects accepted by `armada-rgb set --effect`. Brightness sync is not an
-# effect: it is `linkBrightness` and combines with any effect here.
-RGB_EFFECTS = ("static", "breathing", "color_cycle", "rainbow", "load", "battery", "screen_sync")
-# Whether the suspend hook (56-armada-rgb-suspend-charging) shows the
-# charge-indicator pattern while asleep. Opt-in, default off. Owned by this
-# service, not by armada-rgb's /etc/armada/rgb.json; the hook reads this file
-# directly since it runs standalone via systemd, not through this socket.
-RGB_CHARGE_INDICATOR_CONFIG = Path("/etc/armada/rgb-charge-indicator.conf")
-# Presence of this file keeps the ostree rollback deployment; armada-prune-rollback
-# (timer-driven, not this service) reads it directly.
-KEEP_ROLLBACK_FILE = Path("/etc/armada/keep-rollback")
-RGB_SPEED_MIN = 1
-RGB_SPEED_MAX = 1000
-# LED-vs-screen factor for brightness sync, in percent (armada-rgb --sync-scale).
-RGB_SYNC_SCALE_MIN = 10
-RGB_SYNC_SCALE_MAX = 200
-# Brightness of the charge indicator while asleep, in percent of the LED maximum.
-RGB_CHARGE_INDICATOR_BRIGHTNESS_DEFAULT = 100
-ABL_CONFIG = Path("/etc/armada/abl.conf")
-ABL_MANIFEST = Path("/usr/lib/armada/abl/manifest")
 ABL_PARTITIONS = (
     ("A", "/dev/disk/by-partlabel/abl_a"),
     ("B", "/dev/disk/by-partlabel/abl_b"),
@@ -50,9 +30,9 @@ MAX_REQUEST = 1024 * 1024
 CLIENT_TIMEOUT = 5
 CONTROLLER_TYPES = {"deck-uhid", "xbox-series", "xb360", "ds5"}
 INTERCEPT_MODES = {"overlay", "reset"}
-ARMADA_POWER_TOOL = "/usr/bin/armada-power"
-POWER_PROFILE_NAMES = ("eco", "balanced", "performance")
 SWIPE_GESTURES_CONFIG = Path("/etc/armada/swipe-gestures.conf")
+GYRO_CONFIG = Path("/etc/armada/gyro.conf")
+SSC_DATA = Path("/usr/share/armada/ssc")
 SLEEP_CONFIG = Path("/etc/armada/sleep.conf")
 SUSPEND_MODE_KEY = "suspend_mode"
 NM_IGNORE_SLEEP = Path("/etc/NetworkManager/ignore-sleep")
@@ -63,10 +43,6 @@ DESKTOP_SESSION_FOR_MODE = {
     "desktop": "armada-plasma.desktop",
     "mobile": "armada-plasma-mobile.desktop",
 }
-# Menu labels for the sleep-mode dropdown. This module owns the authoritative
-# sleep-mode list (both the UI menu and the enforcement set derive from it); the
-# Decky plugin consumes it instead of re-deriving its own.
-SLEEP_MODE_LABELS = {"s2idle": "Native", "deep": "Deep", "fake": "Fake"}
 BOTTOM_SCREEN_SERVICE = "armada-bottom-screen.service"
 GAME_MODE_SERVICE = "gamescope-session-plus@steam.service"
 PLASMA_SESSION = "/usr/libexec/armada/armada-plasma-session"
@@ -208,25 +184,8 @@ def set_desktop_mode(mode: str):
     steamosctl("set-default-desktop-session", DESKTOP_SESSION_FOR_MODE[mode])
 
 def select_mem_sleep(mode):
-    if mode in ("s2idle", "deep"):
+    if mode == "s2idle":
         MEM_SLEEP_PATH.write_text(f"{mode}\n", encoding="utf-8")
-
-
-def abl_auto_enabled():
-    for path, key in ((ABL_CONFIG, "auto_update_enabled"), (ABL_MANIFEST, "ARMADA_ABL_AUTO")):
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        value = ""
-        for line in lines:
-            name, sep, raw = line.partition("=")
-            if sep and name.strip() == key:
-                value = raw.strip()
-                break
-        if value in {"0", "1"}:
-            return value == "1"
-    return False
 
 
 def device_env():
@@ -395,12 +354,22 @@ def abl_version():
         )
         version = result.stdout.strip() if result.returncode == 0 else ""
         versions.append((name, version))
+    if not versions[0][1] and not versions[1][1]:
+        # Not in the catalog: an OpenABL build still says so through its variables.
+        result = subprocess.run(
+            ["/usr/bin/python3", ABL_VERSION_TOOL, "--firmware"],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        running = result.stdout.strip() if result.returncode == 0 else ""
+        if running:
+            return running if " " in running else f"{running} (custom build)"
     if versions[0][1] == versions[1][1]:
-        return f"ROCKNIX {versions[0][1]}" if versions[0][1] else "Unknown"
-    return ", ".join(
-        f"{name}: ROCKNIX {version}" if version else f"{name}: Unknown"
-        for name, version in versions
-    )
+        return versions[0][1] or "Unknown"
+    return ", ".join(f"{name}: {version or 'Unknown'}" for name, version in versions)
 
 
 def action_set_controller_type(request):
@@ -447,15 +416,7 @@ def action_get_mtp_enabled(request):
     return {"enabled": mtp_enabled()}
 
 
-def sleep_modes():
-    """Authoritative sleep-mode menu for the fleet: THE single source of truth
-    for both the UI (which greys out unvalidated modes) and enforcement (which
-    rejects them). Two gates decide 'deep': (1) the running kernel must advertise
-    it in mem_sleep -- an unadvertised mode is omitted entirely -- and (2) the
-    model must be validated for deep (ARMADA_SUSPEND_DEEP_VALIDATED, resolved by
-    device-env). A deep-capable kernel always OFFERS deep, but marks it disabled
-    until the device is validated, so the UI can show it greyed rather than hide
-    it. Order matches the historical menu: s2idle, deep, fake."""
+def available_sleep_modes():
     try:
         advertised = {
             word.strip("[]")
@@ -463,23 +424,7 @@ def sleep_modes():
         }
     except OSError:
         advertised = set()
-    deep_validated = device_env().get("ARMADA_SUSPEND_DEEP_VALIDATED") == "1"
-    modes = []
-    if "s2idle" in advertised:
-        modes.append(("s2idle", False))
-    if "deep" in advertised:
-        modes.append(("deep", not deep_validated))
-    modes.append(("fake", False))
-    return [
-        {"data": mode, "label": SLEEP_MODE_LABELS[mode], "disabled": disabled}
-        for mode, disabled in modes
-    ]
-
-
-def enabled_sleep_modes():
-    """Modes the user may actually select, derived from sleep_modes() so display
-    and enforcement never drift (a greyed/unvalidated mode is not selectable)."""
-    return {mode["data"] for mode in sleep_modes() if not mode["disabled"]}
+    return {"fake"} | ({"s2idle"} & advertised)
 
 def action_get_desktop_mode(request):
     return {"value": get_desktop_mode()}
@@ -490,16 +435,9 @@ def action_set_desktop_mode(request):
     set_desktop_mode(value)
     return {"value": get_desktop_mode()}
 
-def action_get_sleep_modes(request):
-    return {"modes": sleep_modes()}
-
-
 def action_set_sleep_mode(request):
     value = str(request.get("value", ""))
-    # Defense in depth: reject a mode the UI should have greyed out (deep on an
-    # unvalidated model, or a kernel-unadvertised mode), reading the SAME source
-    # of truth the menu is built from.
-    if value not in enabled_sleep_modes():
+    if value not in available_sleep_modes():
         raise RuntimeError("sleep mode is not supported on this device")
 
     select_mem_sleep(value)
@@ -554,17 +492,49 @@ def action_set_swipe_gestures_enabled(request):
     return {"enabled": enabled}
 
 
-def action_set_abl_auto_enabled(request):
-    atomic_write(ABL_CONFIG, f"auto_update_enabled={int(bool(request.get('enabled')))}\n")
-    return {"enabled": abl_auto_enabled()}
-
-
-def action_get_abl_auto_enabled(request):
-    return {"enabled": abl_auto_enabled()}
-
-
 def action_get_device_env(request):
     return {"env": device_env()}
+
+
+def gyro_setting():
+    # Must agree with armada-ssc's parsing.
+    try:
+        lines = GYRO_CONFIG.read_bytes().decode("utf-8", "replace").split("\n")
+    except (OSError, UnicodeDecodeError):
+        return True
+    for line in lines:
+        if line.startswith("ARMADA_GYRO="):
+            return line[len("ARMADA_GYRO="):] in ("", "1")
+    return True
+
+
+def action_get_gyro(request):
+    device_id = device_env().get("ARMADA_DEVICE_ID", "")
+    supported = bool(device_id) and (SSC_DATA / device_id).is_dir()
+    return {"supported": supported, "enabled": supported and gyro_setting()}
+
+
+def action_set_gyro_enabled(request):
+    enabled = request.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ValueError("invalid gyro enabled state")
+    if not action_get_gyro({})["supported"]:
+        raise RuntimeError("this device has no gyro support")
+    try:
+        previous = GYRO_CONFIG.read_bytes().decode("utf-8", "replace")
+    except FileNotFoundError:
+        previous = None
+    atomic_write(GYRO_CONFIG, f"ARMADA_GYRO={int(enabled)}\n")
+    # InputPlumber reads the opt-in when it starts.
+    try:
+        run(["/usr/bin/systemctl", "restart", "inputplumber"])
+    except Exception:
+        if previous is None:
+            GYRO_CONFIG.unlink(missing_ok=True)
+        else:
+            atomic_write(GYRO_CONFIG, previous)
+        raise
+    return action_get_gyro({})
 
 
 def action_get_bottom_screen_enabled(request):
@@ -603,6 +573,22 @@ def action_set_bottom_screen_enabled(request):
     return {"enabled": bottom_screen_enabled()}
 
 
+def action_set_companion_locked(request):
+    locked = request.get("locked")
+    if not isinstance(locked, bool):
+        raise ValueError("invalid companion locked state")
+    # gamescope sleeps the bottom screen and drops its touch while this is set.
+    subprocess.run(
+        session_user_command(
+            "DISPLAY=:0", "/usr/bin/xprop", "-root",
+            "-f", "GAMESCOPE_COMPANION_LOCKED", "32c",
+            "-set", "GAMESCOPE_COMPANION_LOCKED", str(int(locked)),
+        ),
+        check=True, capture_output=True, timeout=5,
+    )
+    return {"locked": locked}
+
+
 def action_get_abl_version(request):
     return {"version": abl_version()}
 
@@ -622,34 +608,15 @@ def rgb_supported():
 
 
 def run_rgb(command):
-    # Turn low-level subprocess/parse failures into a message the UI can show
-    # as-is instead of a bare "Python Exception" toast. Each branch says what
-    # broke so it's actionable without opening a shell.
     environment = os.environ.copy()
     try:
         environment.update(device_env())
     except (OSError, subprocess.SubprocessError):
         pass
-    try:
-        output = subprocess.check_output(
-            [RGB_TOOL, *command], text=True, timeout=5, stderr=subprocess.PIPE,
-            env=environment,
-        )
-    except FileNotFoundError:
-        raise RuntimeError("armada-rgb is not installed on this device")
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("RGB lighting service isn't responding (timed out)")
-    except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
-        detail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
-        raise RuntimeError(
-            "RGB lighting service rejected the request"
-            + (f": {detail}" if detail else f" (exit {exc.returncode})")
-        )
-    try:
-        config = json.loads(output)
-    except json.JSONDecodeError:
-        raise RuntimeError("RGB lighting service returned an unexpected response")
+    output = subprocess.check_output(
+        [RGB_TOOL, *command], text=True, timeout=5, env=environment
+    )
+    config = json.loads(output)
     if not isinstance(config, dict):
         raise RuntimeError("invalid armada-rgb response")
     return config
@@ -726,117 +693,7 @@ def action_set_rgb(request):
     if saturation is not None:
         command.extend(["--saturation", str(saturation)])
     command.extend(["--brightness", str(brightness)])
-
-    effect = request.get("effect")
-    if effect is not None:
-        if effect not in RGB_EFFECTS:
-            raise ValueError("invalid RGB effect")
-        command += ["--effect", effect]
-
-    speed = request.get("speed")
-    if speed is not None:
-        valid_speed = (
-            isinstance(speed, int)
-            and not isinstance(speed, bool)
-            and RGB_SPEED_MIN <= speed <= RGB_SPEED_MAX
-        )
-        if not valid_speed:
-            raise ValueError("invalid RGB speed")
-        command += ["--speed", str(speed)]
-
-    sync_scale = request.get("syncScale")
-    if sync_scale is not None:
-        valid_scale = sync_scale == "default" or (
-            isinstance(sync_scale, int)
-            and not isinstance(sync_scale, bool)
-            and RGB_SYNC_SCALE_MIN <= sync_scale <= RGB_SYNC_SCALE_MAX
-        )
-        if not valid_scale:
-            raise ValueError("invalid RGB sync scale")
-        command += ["--sync-scale", str(sync_scale)]
-
     return run_rgb(command)
-
-
-def read_rgb_charge_indicator():
-    """`enabled` (opt-in, default off) and `brightness` (percent, default 100)
-    from RGB_CHARGE_INDICATOR_CONFIG; 56-armada-rgb-suspend-charging reads the same keys."""
-    state = {"enabled": False, "brightness": RGB_CHARGE_INDICATOR_BRIGHTNESS_DEFAULT}
-    try:
-        lines = RGB_CHARGE_INDICATOR_CONFIG.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return state
-    for line in lines:
-        key, sep, value = line.partition("=")
-        if not sep:
-            continue
-        key, value = key.strip(), value.strip()
-        if key == "enabled":
-            state["enabled"] = value == "1"
-        elif key == "brightness" and value.isdigit() and 1 <= int(value) <= 100:
-            state["brightness"] = int(value)
-    return state
-
-
-def write_rgb_charge_indicator(state):
-    atomic_write(
-        RGB_CHARGE_INDICATOR_CONFIG,
-        f"enabled={int(state['enabled'])}\nbrightness={state['brightness']}\n",
-    )
-    return read_rgb_charge_indicator()
-
-
-def rgb_charge_indicator_enabled():
-    return read_rgb_charge_indicator()["enabled"]
-
-
-def action_get_rgb_charge_indicator_enabled(request):
-    return read_rgb_charge_indicator()
-
-
-def action_set_rgb_charge_indicator_enabled(request):
-    enabled = request.get("enabled")
-    if not isinstance(enabled, bool):
-        raise ValueError("invalid charge indicator enabled state")
-    return write_rgb_charge_indicator({**read_rgb_charge_indicator(), "enabled": enabled})
-
-
-def action_set_rgb_charge_indicator_brightness(request):
-    brightness = request.get("brightness")
-    valid = isinstance(brightness, int) and not isinstance(brightness, bool) and 1 <= brightness <= 100
-    if not valid:
-        raise ValueError("invalid charge indicator brightness")
-    return write_rgb_charge_indicator({**read_rgb_charge_indicator(), "brightness": brightness})
-
-
-def action_get_keep_rollback(request):
-    return {"enabled": KEEP_ROLLBACK_FILE.exists()}
-
-
-def action_set_keep_rollback(request):
-    enabled = request.get("enabled")
-    if not isinstance(enabled, bool):
-        raise ValueError("invalid keep rollback enabled state")
-    if enabled:
-        atomic_write(KEEP_ROLLBACK_FILE, "")
-    else:
-        KEEP_ROLLBACK_FILE.unlink(missing_ok=True)
-    return {"enabled": KEEP_ROLLBACK_FILE.exists()}
-
-
-def action_set_power_profile(request):
-    name = str(request.get("profile", ""))
-    if name not in POWER_PROFILE_NAMES:
-        raise ValueError("invalid power profile")
-    try:
-        run([ARMADA_POWER_TOOL, "profile", name])
-    except FileNotFoundError:
-        raise RuntimeError("armada-power is not installed on this device")
-    except subprocess.CalledProcessError:
-        raise RuntimeError("could not switch the active power profile")
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("armada-power didn't respond (timed out)")
-    return {"profile": name}
 
 
 def action_inputplumber_intercept(request):
@@ -1054,6 +911,8 @@ def action_restart_game_mode(request):
 ACTIONS = {
     "get_swipe_gestures_enabled": action_get_swipe_gestures_enabled,
     "set_swipe_gestures_enabled": action_set_swipe_gestures_enabled,
+    "get_gyro": action_get_gyro,
+    "set_gyro_enabled": action_set_gyro_enabled,
     "set_controller_type": action_set_controller_type,
     "get_controller_type": action_get_controller_type,
     "get_device_env": action_get_device_env,
@@ -1062,7 +921,6 @@ ACTIONS = {
     "get_abl_version": action_get_abl_version,
     "get_rgb": action_get_rgb,
     "set_rgb": action_set_rgb,
-    "get_abl_auto_enabled": action_get_abl_auto_enabled,
     "get_ssh_enabled": action_get_ssh_enabled,
     "get_mtp_enabled": action_get_mtp_enabled,
     "inputplumber_intercept": action_inputplumber_intercept,
@@ -1070,21 +928,14 @@ ACTIONS = {
     "set_mtp_enabled": action_set_mtp_enabled,
     "set_bottom_screen_enabled": action_set_bottom_screen_enabled,
     "set_bottom_screen_brightness": action_set_bottom_screen_brightness,
-    "set_abl_auto_enabled": action_set_abl_auto_enabled,
+    "set_companion_locked": action_set_companion_locked,
     "get_desktop_mode": action_get_desktop_mode,
     "set_desktop_mode": action_set_desktop_mode,
-    "get_sleep_modes": action_get_sleep_modes,
     "set_sleep_mode": action_set_sleep_mode,
     "write_config": action_write_config,
     "reapply_perf": action_reapply_perf,
     "reload_input_ranges": action_reload_input_ranges,
     "restart_game_mode": action_restart_game_mode,
-    "set_power_profile": action_set_power_profile,
-    "get_rgb_charge_indicator_enabled": action_get_rgb_charge_indicator_enabled,
-    "set_rgb_charge_indicator_enabled": action_set_rgb_charge_indicator_enabled,
-    "set_rgb_charge_indicator_brightness": action_set_rgb_charge_indicator_brightness,
-    "get_keep_rollback": action_get_keep_rollback,
-    "set_keep_rollback": action_set_keep_rollback,
 }
 
 

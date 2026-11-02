@@ -1,14 +1,15 @@
 from .controller import CONTROLLER_TYPES, controller_type, inputplumber_targets
-from .power import active_profile, factory_power_defaults, parse_power
-from .rgb import rgb_supported, sync_scale_percent
+from .power import factory_power_defaults, parse_power, resolve_limits
+from .rgb import rgb_supported
 from .steam import installed_games
 from .system import (
-    abl_auto_enabled,
     abl_version,
     bottom_screen_brightness,
     bottom_screen_active,
     bottom_screen_enabled,
     device_env,
+    freq_limits,
+    gyro_state,
     mtp_enabled,
     os_version,
     perf_info,
@@ -31,27 +32,21 @@ def build_config(include_games=True):
     fex_contract = load_fex_contract()
     env = device_env()
     secondary_brightness = bottom_screen_brightness()
-    power = parse_power()
-    # The profile armada-powerd is actually running, falling back to the
-    # configured default before armada-powerd writes its first state file.
-    live_profile = active_profile(power["profiles"].keys()) or power["general"]["default_profile"]
+    limits = freq_limits(env)
+    soc = env.get("ARMADA_SOC_CLASS", "")
+    power = resolve_limits(parse_power(), limits, soc)
     return {
         "power": power,
-        "powerDefaults": factory_power_defaults(),
-        "activePowerProfile": live_profile,
+        "powerDefaults": resolve_limits(factory_power_defaults(), limits, soc),
+        "freqLimits": {key: limits[key] for key in ("gpuMhz", "gpuStockMaxMhz", "cpuPolicies", "cpuTopology")},
         "tweaks": load_tweaks(),
         "installedGames": installed_games() if include_games else [],
         "fexProfiles": fex_profile_labels(fex_contract),
         "turnipDrivers": turnip_drivers(),
         "envPresets": load_env_presets(),
         "perf": perf_info(),
-        "cpuDeviceClass": env.get("ARMADA_SOC_CLASS", ""),
-        "topBarIndicator": {
-            "sizePx": env.get("ARMADA_UI_TOPBAR_INDICATOR_SIZE_PX", ""),
-            "marginPx": env.get("ARMADA_UI_TOPBAR_INDICATOR_MARGIN_PX", ""),
-        },
+        "cpuDeviceClass": soc,
         "rgbSupported": rgb_supported(),
-        "rgbSyncScaleDefault": sync_scale_percent(env.get("ARMADA_RGB_SYNC_SCALE", "")),
         "protonDefaults": [
             default.strip()
             for default in env.get("ARMADA_PROTON_DEFAULTS", "").split(":")
@@ -59,7 +54,6 @@ def build_config(include_games=True):
         ],
         "osVersion": os_version(),
         "ablVersion": abl_version(),
-        "ablAutoEnabled": abl_auto_enabled(),
         "bottomScreenSupported": bool(
             env.get("ARMADA_SECONDARY_CONNECTOR") and env.get("ARMADA_SECONDARY_TOUCHSCREEN")
         ),
@@ -70,6 +64,7 @@ def build_config(include_games=True):
         "chargingFanPwm": int(power["fan"].get("charging_pwm", 0)),
         "sshEnabled": ssh_enabled(),
         "swipeGesturesEnabled": swipe_gestures_enabled(),
+        "gyro": gyro_state(),
         "mtpEnabled": mtp_enabled(),
         "desktopMode": desktop_mode(),
         "desktopModes": desktop_modes(),

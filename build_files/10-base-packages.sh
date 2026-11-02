@@ -15,11 +15,13 @@ pkgs=(
     polkit
     sudo
 
+    # Bootloader
+    systemd-boot-unsigned
+
     # Radio 
     bluez
     NetworkManager
     NetworkManager-wifi
-    wireguard-tools
     wpa_supplicant
 
     # Hardware support
@@ -81,18 +83,12 @@ pkgs=(
 
     # Steam extras - see 12-armada-packages.sh for the main package
     steam-devices
+    steam-notif-daemon
 )
 
-# What the image takes from Terra (steam-notif-daemon, two codec libraries,
-# scx-tools) comes from the terra-pins package, fixed by sha256, not from Terra
-# live: a Terra outage or half-published mirror cannot break the build.
-# Bump them in packages/terra-pins/pins.txt. scx-tools requires scx-scheds and
-# is installed with it in 12-armada-packages.sh.
-terra_pins=()
-for rpm in /packages/terra-pins/*.rpm; do
-    [[ "${rpm##*/}" == scx-tools-* ]] || terra_pins+=("${rpm}")
-done
-dnf5 -y install --setopt=install_weak_deps=False "${terra_pins[@]}"
+dnf5 -y install --nogpgcheck \
+    --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' \
+    terra-release
 
 dnf5 -y install --setopt=install_weak_deps=False "${pkgs[@]}"
 
@@ -185,7 +181,7 @@ desktop_pkgs=(
     # Miscellaneous
     cage
     firefox
-    spectacle
+    heroic-games-launcher
     waydroid
     wl-clipboard
     wlr-randr
@@ -193,7 +189,7 @@ desktop_pkgs=(
     # Extra fonts
     google-noto-color-emoji-fonts
     google-noto-sans-arabic-vf-fonts
-    google-noto-sans-cjk-vf-fonts
+    google-noto-sans-cjk-fonts
     google-noto-sans-devanagari-vf-fonts
     google-noto-sans-hebrew-vf-fonts
     google-noto-sans-mono-fonts
@@ -241,7 +237,3 @@ dnf5 -y install --setopt=install_weak_deps=False \
 mkdir -p /etc/flatpak/remotes.d
 curl --retry 3 -fsSL -o /etc/flatpak/remotes.d/flathub.flatpakrepo \
     https://dl.flathub.org/repo/flathub.flatpakrepo
-
-# Locale pruning (~380 MB): keep only es*, en* and C* in /usr/share/locale and /usr/lib/locale.
-find /usr/share/locale -maxdepth 1 -type d ! -name 'es*' ! -name 'en*' ! -name 'C*' ! -name 'locale' -exec rm -rf {} + 2>/dev/null || true
-find /usr/lib/locale -maxdepth 1 -type d ! -name 'es*' ! -name 'en*' ! -name 'C*' ! -name 'locale' -exec rm -rf {} + 2>/dev/null || true

@@ -11,22 +11,13 @@ component: a pinned upstream (`BASE.env`) + `patches/` + a `build.sh`.
 | path    | contents                                                    |
 | ------- | ----------------------------------------------------------- |
 | `/work` | the package directory, cwd, artifacts go to `./out`          |
-| `/src`  | this directory: `toolchain.env`, `TERRA.env`, sibling packages |
+| `/src`  | this directory: `toolchain.env`, sibling packages           |
 
 `Containerfile` turns each one into a pair of stages: `pkg-<name>`, which runs
 `build.sh` as a `RUN` step, and `out-<name>`, a scratch stage holding just the
 artifacts in the layout the image build bind-mounts at `/packages/<name>`.
 Running the build as a step is what lets it cache as a layer, so an unchanged
 package is not rebuilt.
-
-A package can instead ship its own `Containerfile.package` with the same
-`out-<name>` contract (see `terra-pins`); `containerfile-for.sh` picks it, so
-adding such a package does not change the hash of every other one, which
-`package-hash.sh` derives from the shared `Containerfile`.
-
-`terra-pins` holds the RPMs the image takes from Terra, fixed by sha256 in
-`pins.txt`: the image build installs them from this package and never talks to
-Terra, so a Terra outage cannot break it.
 
 ## Building one
 

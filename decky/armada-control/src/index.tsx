@@ -1,9 +1,6 @@
 import { definePlugin } from "@decky/api";
 import { getCompatApplied, getConfig, getInstalledGames, saveCompatApplied } from "./backend";
-import { ActiveProfileBadge } from "./components/ActiveProfileBadge";
 import { Content } from "./Content";
-import { installUpdateReleaseNotes } from "./lib/updateNotesPatch";
-import { installTopBarProfileIndicator, setTopBarIndicatorGeometry } from "./lib/topBarProfileIndicator";
 import {
   configureCompatPolicy,
   defaultWindowsCompatTool,
@@ -14,25 +11,22 @@ import {
   sweepInstalledGames,
 } from "./lib/steamCompat";
 import { factoryDefaultTransition } from "./lib/protonPolicy";
+import { registerLockWatcher } from "./lib/lockWatcher";
+import { registerLowPowerDownloadEntry } from "./lib/lowPowerDownloads";
 
 export default definePlugin(() => {
   let unregisterDownloadWatcher = () => {};
+  const unregisterLockWatcher = registerLockWatcher();
+  const unregisterLowPowerDownloadEntry = registerLowPowerDownloadEntry();
   const persistHandledGames = () => {
     saveCompatApplied(handledGameAppids()).catch(() => {});
   };
-  // Live power-profile glyph in Steam's top bar, between battery and clock
-  // (lib/topBarProfileIndicator.tsx). Disposed in onDismount below.
-  const removeTopBarGlyph = installTopBarProfileIndicator();
-  // This OS's release notes behind the update field's options button
-  // (lib/updateNotesPatch.tsx). Disposed in onDismount below.
-  const removeUpdateNotes = installUpdateReleaseNotes();
   let cancelled = false;
   const handledRequest = getCompatApplied()
     .then((state) => ({ state, loaded: true }))
     .catch(() => ({ state: { appids: [] as string[], protonDefault: "" }, loaded: false }));
   Promise.all([getConfig(), getInstalledGames(), handledRequest])
     .then(async ([config, games, handled]) => {
-      setTopBarIndicatorGeometry(config.topBarIndicator);
       await (window as any).App.WaitForServicesInitialized();
       if (cancelled) return;
       const explicitTool = config.tweaks?.global?.windowsCompatTool;
@@ -80,13 +74,11 @@ export default definePlugin(() => {
   return {
     name: "Armada Control",
     content: <Content />,
-    // Live active-power-profile marker in this plugin's own header.
-    titleView: <ActiveProfileBadge />,
     onDismount() {
       cancelled = true;
       unregisterDownloadWatcher();
-      removeTopBarGlyph?.();
-      removeUpdateNotes();
+      unregisterLockWatcher();
+      unregisterLowPowerDownloadEntry();
     },
     icon: (
       <svg

@@ -37,7 +37,6 @@ jobs:
       - name: Resolve what needs building
         id: resolve
         env:
-          UPSTREAM_PKG: "ghcr.io/armada-os/armada/pkg"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -62,11 +61,6 @@ jobs:
 
             if skopeo inspect --raw "docker://${ref}" >/dev/null 2>&1; then
               echo "::notice::${pkg} already built (${hash})"
-            elif [ "${ref}" != "${UPSTREAM_PKG}/${pkg}:${hash}" ] &&
-                 skopeo inspect --raw "docker://${UPSTREAM_PKG}/${pkg}:${hash}" >/dev/null 2>&1; then
-              # A fork reuses the canonical build of an unchanged package.
-              echo "::notice::${pkg} already built upstream (${hash})"
-              ref="${UPSTREAM_PKG}/${pkg}:${hash}"
             else
               echo "::notice::${pkg} needs building (${hash})"
               matrix="$(jq -c --arg p "${pkg}" --arg r "${runner}" --arg h "${hash}" \
@@ -154,7 +148,7 @@ jobs:
           REF="ghcr.io/${owner,,}/armada/pkg/${PACKAGE}:${HASH}"
 
           buildah build \
-            -f "$(packages/containerfile-for.sh "${PACKAGE}")" \
+            -f packages/Containerfile \
             --target "out-${PACKAGE}" \
             --layers \
             --cache-from "${CACHE_REPO}" \

@@ -37,25 +37,12 @@ case "$model" in
     "Retroid Pocket 6") profile=retroid-pocket-6 ;;
     "Retroid Pocket 6 TOP-DPAD") profile=retroid-pocket-6 ;;
     "Retroid Pocket Nova") profile=retroid-pocket-nova ;;
+    "Retroid Pocket Duo") profile=retroid-pocket-duo ;;
     *) profile= ;;
 esac
 
 if [[ -n "$profile" && -r "$device_dir/$profile.conf" ]]; then
     source "$device_dir/$profile.conf"
-fi
-
-profile_suspend_mode=${ARMADA_SUSPEND_MODE:-fake}
-
-# Deep suspend is a per-device VALIDATED capability, not just a kernel one: a
-# model is cleared for deep only after deep-charge + resume are verified on that
-# hardware. A device .conf declares validation in its own idiom -- either by
-# making deep the default (ARMADA_SUSPEND_MODE=deep, as the RP6 does) or, to
-# clear deep without making it the default, ARMADA_SUSPEND_DEEP_VALIDATED=1.
-# defaults.conf keeps the fleet floor at 0, so an unvalidated model never runs
-# deep even on a kernel that advertises it.
-deep_validated=${ARMADA_SUSPEND_DEEP_VALIDATED:-0}
-if [[ "$profile_suspend_mode" == deep ]]; then
-    deep_validated=1
 fi
 
 mem_sleep=${ARMADA_MEM_SLEEP_PATH:-/sys/power/mem_sleep}
@@ -67,37 +54,13 @@ fi
 sleep_config=${ARMADA_SLEEP_CONFIG:-/etc/armada/sleep.conf}
 if [[ -r "$sleep_config" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$line" =~ ^[[:space:]]*suspend_mode[[:space:]]*=[[:space:]]*(fake|s2idle|deep)[[:space:]]*$ ]]; then
-            suspend_mode=${BASH_REMATCH[1]}
-            if [[ "$suspend_mode" == fake ]] || grep -qw "$suspend_mode" <<<"$mem_sleep_modes"; then
-                ARMADA_SUSPEND_MODE=$suspend_mode
-            else
-                ARMADA_SUSPEND_MODE=$profile_suspend_mode
-            fi
-        fi
-    done <"$sleep_config"
-    # Kill switch for dark resume (RP6 default on): dark_resume=0|1.
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$line" =~ ^[[:space:]]*dark_resume[[:space:]]*=[[:space:]]*([01])[[:space:]]*$ ]]; then
-            ARMADA_DARK_RESUME=${BASH_REMATCH[1]}
+        if [[ "$line" =~ ^[[:space:]]*suspend_mode[[:space:]]*=[[:space:]]*(fake|s2idle)[[:space:]]*$ ]]; then
+            ARMADA_SUSPEND_MODE=${BASH_REMATCH[1]}
         fi
     done <"$sleep_config"
 fi
-# Fleet gate for deep: it runs only when BOTH gates pass -- (1) the running
-# kernel advertises deep in mem_sleep (checked just below) AND (2) this model is
-# validated for deep. An unvalidated model that asked for deep (a profile that
-# never validates cannot, but a user /etc/armada/sleep.conf override can) falls
-# back to its profile default -- s2idle for the fleet -- instead of running deep
-# on unvetted hardware.
-if [[ "$ARMADA_SUSPEND_MODE" == deep && "$deep_validated" != 1 ]]; then
-    ARMADA_SUSPEND_MODE=$profile_suspend_mode
-fi
-
-# Never hand systemd-sleep a mode the running kernel cannot do (including a
-# profile default): a real mode that mem_sleep does not advertise degrades to
-# fake so suspend still happens instead of failing.
-if [[ "$ARMADA_SUSPEND_MODE" != fake ]] &&
-    ! grep -qw "$ARMADA_SUSPEND_MODE" <<<"$mem_sleep_modes"; then
+if [[ "${ARMADA_SUSPEND_MODE:-s2idle}" == "s2idle" ]] &&
+    ! grep -qw s2idle <<<"$mem_sleep_modes"; then
     ARMADA_SUSPEND_MODE=fake
 fi
 
@@ -114,6 +77,11 @@ fi
 # BIG includes the prime cores; PRIME is the strict subset. Empty
 # ARMADA_IRQ_CORES means no IRQ restriction.
 case "${ARMADA_SOC_CLASS:-}" in
+    SM7750)
+        : "${ARMADA_LITTLE_CORES=0-2}"
+        : "${ARMADA_BIG_CORES=3-7}"
+        : "${ARMADA_PRIME_CORES=7}"
+        ;;
     SM8250)
         : "${ARMADA_LITTLE_CORES=0-3}"
         : "${ARMADA_BIG_CORES=4-7}"
@@ -121,6 +89,7 @@ case "${ARMADA_SOC_CLASS:-}" in
         # references run SM8250 unrestricted; the A55s are too weak to
         # carry all IRQ handling
         : "${ARMADA_IRQ_CORES=}"
+        : "${ARMADA_GPU_STOCK_MAX_MHZ:=587}"
         ;;
     SM8550)
         : "${ARMADA_LITTLE_CORES=0-2}"
@@ -142,22 +111,18 @@ case "${ARMADA_SOC_CLASS:-}" in
         ;;
 esac
 
-# Publish the resolved validation state so the UI/backend read one source of
-# truth (whether to offer deep enabled or greyed) instead of re-deriving it.
-ARMADA_SUSPEND_DEEP_VALIDATED=$deep_validated
-
 vars=(
     ARMADA_DEVICE_ID
     ARMADA_DEVICE_NAME
     ARMADA_SOC_CLASS
     ARMADA_PROTON_DEFAULTS
     ARMADA_SUSPEND_MODE
-    ARMADA_SUSPEND_DEEP_VALIDATED
     ARMADA_SYNC_SUSPEND
-    ARMADA_DARK_RESUME
-    ARMADA_CHARGER_MODE
     ARMADA_PRIMARY_CONNECTOR
     ARMADA_PRIMARY_BACKLIGHT
+    ARMADA_BACKLIGHT_GAMMA
+    ARMADA_BACKLIGHT_INPUT_MIN
+    ARMADA_BACKLIGHT_MIN
     ARMADA_SECONDARY_CONNECTOR
     ARMADA_SECONDARY_BACKLIGHT
     ARMADA_VIRTUAL_KEYBOARD_CONNECTOR
@@ -165,6 +130,8 @@ vars=(
     ARMADA_SECONDARY_TOUCHSCREEN
     ARMADA_PANEL_TYPE
     ARMADA_PANEL_ORIENTATION
+    ARMADA_SECONDARY_PANEL_ORIENTATION
+    ARMADA_SECONDARY_FORCE_LINEAR
     ARMADA_GAMESCOPE_USE_ROTATION_SHADER
     ARMADA_GAMESCOPE_FAKE_OUTPUT_MM
     ARMADA_HDR_NITS
@@ -174,9 +141,7 @@ vars=(
     ARMADA_BIG_CORES
     ARMADA_PRIME_CORES
     ARMADA_IRQ_CORES
-    ARMADA_UI_TOPBAR_INDICATOR_SIZE_PX
-    ARMADA_UI_TOPBAR_INDICATOR_MARGIN_PX
-    ARMADA_RGB_SYNC_SCALE
+    ARMADA_GPU_STOCK_MAX_MHZ
 )
 
 for var in "${vars[@]}"; do

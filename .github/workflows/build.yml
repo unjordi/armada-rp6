@@ -5,7 +5,6 @@ on:
     branches:
       - main
       - staging
-      - develop
   workflow_dispatch:
 
 env:
@@ -64,8 +63,6 @@ jobs:
           branch="${BUILD_REF#refs/heads/}"
           case "${branch}" in
             main) tag=testing; channel=preview ;;
-            # RP6 fork: develop publishes the :latest that devices track (OTA).
-            develop) tag=latest; channel="" ;;
             staging) tag=staging; channel=staging ;;
             testing|preview|beta|stable|latest)
               echo "::error::Reserved release channel. Build main/staging or use Promote channel."
@@ -101,7 +98,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
 
       - name: Install just
         uses: ublue-os/just-action@30ab4659369934b65b655bf8d2fa4ddd6547d384 # v3
@@ -113,30 +109,12 @@ jobs:
           echo "version=$(TZ=America/New_York date +%Y%m%d).$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Generate release notes
-        id: notes
-        if: github.ref == 'refs/heads/develop'
-        run: |
-          set -euo pipefail
-          # Previous published revision: label of :latest, read before this build publishes.
-          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" |
-            skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1 || true
-          prev=$(skopeo inspect --override-arch arm64 --config "docker://${IMAGE_REGISTRY}/${IMAGE_NAME}:latest" 2>/dev/null |
-            jq -r '.config.Labels["org.opencontainers.image.revision"] // empty' 2>/dev/null || true)
-          echo "Previous revision: ${prev:-<none, using the last 20 commits>}"
-          notes=system_files/usr/share/armada/release-notes.md
-          bash build_files/release-notes.sh --version "${{ steps.version.outputs.version }}" \
-            --from "${prev}" --to "${{ steps.version.outputs.revision }}" > "${notes}"
-          cat "${notes}"
-          echo "label=io.armada.release-notes=$(base64 -w0 "${notes}")" >> "${GITHUB_OUTPUT}"
-
       - name: Generate image metadata
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: metadata
         with:
           tags: |
             type=raw,value=${{ steps.channel.outputs.tag }}
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.revision=${{ steps.version.outputs.revision }}
             org.opencontainers.image.created=${{ steps.version.outputs.created }}
@@ -149,7 +127,6 @@ jobs:
             org.opencontainers.image.vendor=${{ github.repository_owner }}
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             containers.bootc=1
-            ${{ steps.notes.outputs.label }}
           sep-tags: " "
           sep-annotations: " "
 
@@ -226,7 +203,7 @@ jobs:
         id: push
         run: |
           set -euxo pipefail
-          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE_FULL="${IMAGE_REGISTRY}/${IMAGE_NAME}"
           BUILD_TAG="build-${{ steps.version.outputs.version }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           n=0
@@ -252,7 +229,7 @@ jobs:
           IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
           IMAGE_REF="${IMAGE_FULL}@${{ steps.push.outputs.digest }}"
           # Cosign and Skopeo use separate registry auth stores.
-          echo "${{ secrets.RP6_CI_TOKEN || secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           # Sign the digest, not a tag (a concurrent run could re-point the tag).
           # --new-bundle-format=false: bootc's verifier expects the legacy .sig; the
           # default flips in cosign v3.

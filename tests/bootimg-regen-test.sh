@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Covers the /KERNEL regeneration path: the shared BLS-to-cmdline transform,
-# the known-good KERNEL.BAK snapshot, the target-deployment DTB list lookup,
-# the initramfs ostree fallback that rescues a stale /KERNEL, and the
-# charger-mode image in boot_a/boot_b (armada-chargerimg-update).
+# the removal of the old KERNEL.BAK spare, the target-deployment DTB list lookup,
+# and the initramfs ostree fallback that rescues a stale /KERNEL.
 
 set -euo pipefail
 
@@ -59,7 +58,7 @@ assert_eq "transform shell options" "$-" "$before"
 (( ${#cmdline} <= ARMADA_CMDLINE_MAX )) ||
     fail "transform: ${#cmdline}B exceeds ${ARMADA_CMDLINE_MAX}B"
 
-# --- armada-bootimg-update: snapshot + DTB list resolution -------------------
+# --- armada-bootimg-update: spare cleanup + DTB list resolution --------------
 
 # Neutralize the two things a test cannot provide: a mounted ESP and a
 # lock under /run. Everything else runs as shipped.
@@ -109,48 +108,27 @@ assert_contains "regen" "$out" "wrote $ESP/KERNEL"
 # A second run is a no-op: the stamp matches.
 assert_contains "regen idempotence" "$(run_update)" "already current"
 
-# The snapshot is boot-time only; a shutdown-style run must never write it.
-[[ ! -e "$ESP/KERNEL.BAK" ]] || fail "snapshot: written without --snapshot-prev"
+# Spares left by older images go even when /KERNEL is already current.
+printf 'spare' > "$ESP/KERNEL.BAK"; printf 'tmp' > "$ESP/KERNEL.TMP"
+printf 'id' > "$ESP/.armada-bootimg.prev.id"; printf 'partial' > "$ESP/.KERNEL.new"
+assert_contains "spare cleanup" "$(run_update)" "already current"
+for f in KERNEL.BAK KERNEL.TMP .armada-bootimg.prev.id .KERNEL.new; do
+    [[ ! -e "$ESP/$f" ]] || fail "spare cleanup: $f left on the ESP"
+done
 
-out="$(run_update --snapshot-prev)"
-assert_contains "snapshot" "$out" "saved known-good"
-# cmp, not $(cat): these are real boot images with null bytes.
-cmp -s "$ESP/KERNEL.BAK" "$ESP/KERNEL" || fail "snapshot: spare differs from /KERNEL"
-assert_eq "snapshot stamp" "$(cat "$ESP/.armada-bootimg.prev.id")" "$(cat "$ESP/.armada-bootimg.id")"
-
-# Unchanged stamp means no repeat copy (this would be ~68 MB on every boot).
-printf 'mutated' > "$ESP/KERNEL"
-run_update --snapshot-prev >/dev/null
-cmp -s "$ESP/KERNEL.BAK" "$ESP/KERNEL" && fail "snapshot: recopied on an unchanged stamp"
-
-# A new /KERNEL means the spare refreshes to the image that just booted.
-printf 'booted-image' > "$ESP/KERNEL"; printf 'NEW-ID' > "$ESP/.armada-bootimg.id"
-run_update --snapshot-prev >/dev/null
-assert_eq "snapshot refresh" "$(cat "$ESP/KERNEL.BAK")" "booted-image"
-
-# Never leave the staging temp behind.
-[[ ! -e "$ESP/KERNEL.TMP" ]] || fail "snapshot: staging temp leaked"
-
-# A failing snapshot must not divert the regen: at shutdown a nonzero exit
-# here would make the finalize hook roll back a healthy update.
-printf 'X' > "$ESP/KERNEL"; printf 'UNWRITABLE' > "$ESP/.armada-bootimg.id"
+# A regen that cannot write must leave the booted /KERNEL in place.
+cp "$ESP/KERNEL" "$WORK/kernel.good"; printf 'STALE' > "$ESP/.armada-bootimg.id"
 chmod a-w "$ESP"
-out="$(run_update --snapshot-prev)"
+status=0
+out="$(ESP="$ESP" BOOTROOT="$BOOT" SYSROOT="$SYS" ARGS_FILE="$ARMADA_LIB/bootimg-args" \
+    DTB_LIST="$ARMADA_LIB/supported-dtbs" MKBOOTIMG="$ROOT/build_files/vendor/mkbootimg/mkbootimg.py" \
+    bash "$WORK/update.sh" 2>&1)" || status=$?
 chmod u+w "$ESP"
-assert_contains "snapshot failure" "$out" "snapshot failed"
-[[ "$out" == *"already current"* || "$out" == *"KERNEL"* ]] ||
-    fail "snapshot failure: regen did not continue"
-
-# A stamp that outlived its image must not suppress recreating the spare: a
-# manual recovery moves KERNEL.BAK away and leaves the hidden stamp behind.
-# Settle /KERNEL first, so the spare's stamp matches and the skip would fire.
+# A zero exit here would suppress the finalize rollback.
+(( status != 0 )) || fail "failed write: exited 0"
+[[ "$out" != *"wrote $ESP/KERNEL"* ]] || fail "failed write: reported success"
+cmp -s "$WORK/kernel.good" "$ESP/KERNEL" || fail "failed write: /KERNEL changed or lost"
 run_update >/dev/null
-run_update --snapshot-prev >/dev/null
-[[ -f "$ESP/KERNEL.BAK" ]] || fail "snapshot: no spare to start the deletion case from"
-assert_contains "snapshot skip precondition" "$(run_update --snapshot-prev)" "already current"
-rm -f "$ESP/KERNEL.BAK"
-run_update --snapshot-prev >/dev/null
-[[ -f "$ESP/KERNEL.BAK" ]] || fail "snapshot: a surviving stamp suppressed recreating the spare"
 
 # An ostree= karg that resolves to nothing means the entry does not describe a
 # deployment that exists. Baking it would stamp an unbootable /KERNEL current and
@@ -177,11 +155,12 @@ if [[ -z "$stop" ]]; then
     fail "sync unit: no explicit TimeoutStopSec, so the default can kill the regen"
 fi
 (( stop > lock_wait )) || fail "sync unit: TimeoutStopSec ${stop}s does not exceed the ${lock_wait}s lock wait"
-mapfile -t sync_stops < <(sed -n 's/^ExecStop=//p' "$sync_unit")
+abl_dropin="$ROOT/packages/openabl-updater/src/armada-bootimg-sync-openabl-updater.conf"
+mapfile -t sync_stops < <(sed -n 's/^ExecStop=//p' "$sync_unit" "$abl_dropin")
 assert_eq "sync bootimg ordering" "${sync_stops[0]:-}" \
-    "/usr/libexec/armada/armada-bootimg-update"
+    "/usr/libexec/armada/armada-boot-update"
 assert_eq "sync ABL ordering" "${sync_stops[1]:-}" \
-    "-/usr/libexec/armada/armada-abl-finalize"
+    "-/usr/libexec/openabl-updater/armada-abl-finalize"
 
 # OSTree already sets 5m for slow media, and it applies to each ExecStop, so the
 # drop-in must never set a smaller value: that would shorten the regen's window.
@@ -194,7 +173,7 @@ assert_eq "finalize bootimg ordering" "${finalize_stops[0]:-}" \
     "/usr/libexec/armada/armada-bootimg-finalize"
 [[ "${#finalize_stops[@]}" -eq 1 ]] ||
     fail "finalize drop-in: ABL must run only from the shutdown sync unit"
-[[ -x "$ROOT/system_files/usr/libexec/armada/armada-abl-finalize" ]] ||
+[[ -x "$ROOT/packages/openabl-updater/src/armada-abl-finalize" ]] ||
     fail "finalize ABL helper is not executable"
 
 # --- initramfs ostree fallback ----------------------------------------------
@@ -344,68 +323,5 @@ for bin in mkdir mount umount rm; do
         *) fail "module-setup: does not install ${bin}, which the fallback runs" ;;
     esac
 done
-
-# --- charger mode: cmdline transform -----------------------------------------
-
-ccl="$(armada_charger_cmdline "ostree=/o/b/c/0 rw console=tty0 quiet systemd.unit=other.target")"
-assert_eq "charger cmdline" "$ccl" "ostree=/o/b/c/0 rw quiet systemd.unit=armada-charger.target"
-
-# --- armada-chargerimg-update: boot_a/boot_b + init_boot headers --------------
-
-CHG="$ROOT/system_files/usr/libexec/armada/armada-chargerimg-update"
-PARTS="$WORK/parts"; mkdir -p "$PARTS"
-CSIZE=$((4 * 1024 * 1024))
-sed -e 's|findmnt -rn "${ESP}"|true "${ESP}"|' "$CHG" > "$WORK/chg.sh"
-printf '#!/bin/bash\necho ARMADA_CHARGER_MODE=${FAKE_CHARGER:-1}\n' > "$WORK/device-env"
-chmod +x "$WORK/device-env"
-fresh_parts() {
-    local p
-    for p in boot_a boot_b; do head -c "$CSIZE" /dev/zero > "$PARTS/$p"; done
-    { printf 'ANDROID!'; head -c 8184 /dev/zero; } > "$PARTS/init_boot_a"
-    { printf 'NOTANDRD'; head -c 8184 /dev/zero; } > "$PARTS/init_boot_b"
-    rm -f "$ESP/.armada-chargerimg.id"
-}
-run_chg() {
-    ESP="$ESP" BOOTROOT="$BOOT" SYSROOT="$SYS" \
-        ARGS_FILE="$ARMADA_LIB/bootimg-args" DTB_LIST="$ARMADA_LIB/supported-dtbs" \
-        MKBOOTIMG="$ROOT/build_files/vendor/mkbootimg/mkbootimg.py" \
-        AVBTOOL="$ROOT/build_files/vendor/avb/avbtool.py" \
-        ARMADA_DEVICE_ENV="$WORK/device-env" ARMADA_CHARGER_PART_DIR="$PARTS" \
-        ARMADA_CHARGER_BOOT_SIZE="$CSIZE" ARMADA_CHARGERIMG_LOCK="$WORK/chg.lock" \
-        bash "$WORK/chg.sh" 2>&1 || true
-}
-AVB="$ROOT/build_files/vendor/avb/avbtool.py"
-
-fresh_parts
-out="$(run_chg)"
-assert_contains "charger image" "$out" "wrote boot_a/boot_b"
-cmp -s "$PARTS/boot_a" "$PARTS/boot_b" || fail "charger image: slots differ"
-[[ "$(head -c 8 "$PARTS/boot_a")" == "ANDROID!" ]] || fail "charger image: boot_a is not a boot image"
-hdr_cmdline=$(dd if="$PARTS/boot_a" bs=1 skip=64 count=512 status=none | tr -d '\0')
-[[ "$hdr_cmdline" == "ostree=/ostree/boot.1/default/$CSUM/0 "* ]] || fail "charger image: ostree= not first: $hdr_cmdline"
-assert_contains "charger image cmdline" "$hdr_cmdline" "systemd.unit=armada-charger.target"
-info=$(python3 "$AVB" info_image --image "$PARTS/boot_a")
-assert_contains "charger footer" "$info" "Algorithm:                NONE"
-assert_contains "charger footer" "$info" "Partition Name:        boot"
-assert_contains "charger footer" "$info" "com.android.build.boot.os_version"
-[[ "$(head -c 8 "$PARTS/init_boot_a" | tr -d '\0')" == "" ]] || fail "charger image: init_boot_a header not cleared"
-[[ "$(head -c 8 "$PARTS/init_boot_b")" == "NOTANDRD" ]] || fail "charger image: touched a non-Android init_boot"
-[[ -s "$ESP/.armada-chargerimg.id" ]] || fail "charger image: no stamp"
-
-# Second run: same inputs, nothing rewritten.
-before=$(sha256sum "$PARTS/boot_a" | cut -d' ' -f1)
-assert_contains "charger idempotence" "$(run_chg)" "already current"
-assert_eq "charger idempotence" "$(sha256sum "$PARTS/boot_a" | cut -d' ' -f1)" "$before"
-
-# A partition of the wrong size is never written.
-fresh_parts; head -c $((CSIZE / 2)) /dev/zero > "$PARTS/boot_b"
-assert_contains "charger size guard" "$(run_chg)" "refusing to write"
-[[ "$(head -c 8 "$PARTS/boot_a" | tr -d '\0')" == "" ]] || fail "charger size guard: wrote boot_a anyway"
-
-# Devices without ARMADA_CHARGER_MODE=1 are left alone.
-fresh_parts
-out="$(FAKE_CHARGER=0 run_chg)"
-[[ "$(head -c 8 "$PARTS/boot_a" | tr -d '\0')" == "" ]] || fail "charger gate: wrote on a device without charger mode"
-[[ "$(head -c 8 "$PARTS/init_boot_a")" == "ANDROID!" ]] || fail "charger gate: cleared init_boot without charger mode"
 
 printf 'boot image regeneration test passed\n'

@@ -5,27 +5,30 @@ import type { Dispatch, SetStateAction } from "react";
 import {
   getBottomScreenActive,
   getConfig,
-  getKeepRollback,
   getSleepLogsEnabled,
-  setAblAutoEnabled as applyAblAutoEnabled,
   setBottomScreenBrightness as applyBottomScreenBrightness,
   setBottomScreenEnabled as applyBottomScreenEnabled,
   setChargingFanPwm as applyChargingFanPwm,
   setControllerType as applyControllerType,
   setMtpEnabled as applyMtpEnabled,
   setDesktopMode as applyDesktopMode,
-  setKeepRollback as applyKeepRollback,
+  setGyroEnabled as applyGyroEnabled,
   setSleepMode as applySleepMode,
   setSleepLogsEnabled as applySleepLogsEnabled,
   setSshEnabled as applySshEnabled,
   setSwipeGesturesEnabled as applySwipeGesturesEnabled,
 } from "../backend";
 import { openCalibration } from "../components/Calibration";
+import { PanelCalibration } from "../components/PanelCalibration";
 import { ButtonRow, SelectEdit, SliderEdit, ToggleRow } from "../components/widgets";
 import { useDebouncedApply } from "../hooks/useDebouncedApply";
-import { friendlyError } from "../lib/errors";
 import { t, translateLabel } from "../i18n";
 import { percentToPwm, pwmToPercent } from "../lib/fanCurve";
+import {
+  getLowPowerDownloadSettings,
+  setLowPowerDownloadsEnabled,
+  setLowPowerDownloadsOnBattery,
+} from "../lib/lowPowerDownloads";
 import type { Config } from "../types";
 
 const BOTTOM_SCREEN_BRIGHTNESS_DELAY_MS: number = 150;
@@ -37,10 +40,10 @@ export function Settings({ config, setConfig }: {
   setConfig: Dispatch<SetStateAction<Config | null>>;
 }) {
   const [swipeGesturesSaving, setSwipeGesturesSaving] = useState(false);
+  const [gyroSaving, setGyroSaving] = useState(false);
   const [sleepLogsEnabled, setSleepLogsEnabled] = useState<boolean | null>(null);
   const [sleepLogsSaving, setSleepLogsSaving] = useState(false);
-  const [keepRollback, setKeepRollbackState] = useState<boolean | null>(null);
-  const [keepRollbackSaving, setKeepRollbackSaving] = useState(false);
+  const [lowPowerDownloads, setLowPowerDownloads] = useState(getLowPowerDownloadSettings);
   const setBottomScreenBrightness = useDebouncedApply(
     async () => (await getConfig()).bottomScreenBrightness,
     (value) => setConfig((current) => (current ? { ...current, bottomScreenBrightness: value } : current)),
@@ -61,14 +64,6 @@ export function Settings({ config, setConfig }: {
     getSleepLogsEnabled()
       .then((enabled) => { if (!cancelled) setSleepLogsEnabled(enabled); })
       .catch(() => { if (!cancelled) setSleepLogsEnabled(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    getKeepRollback()
-      .then((state) => { if (!cancelled) setKeepRollbackState(state.enabled); })
-      .catch(() => { if (!cancelled) setKeepRollbackState(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -129,17 +124,13 @@ export function Settings({ config, setConfig }: {
       setConfig((current) => (current ? { ...current, controllerType: previous } : current));
     }
   };
-  const setAblAutoEnabled = async (enabled: boolean) => {
-    if (enabled === !!config.ablAutoEnabled) {
-      return;
-    }
-    setConfig((current) => (current ? { ...current, ablAutoEnabled: enabled } : current));
+  const applyLowPowerDownloads = async (apply: () => Promise<void>) => {
     try {
-      const applied = await applyAblAutoEnabled(enabled);
-      setConfig((current) => (current ? { ...current, ablAutoEnabled: applied } : current));
+      await apply();
     } catch (error) {
-      setConfig((current) => (current ? { ...current, ablAutoEnabled: !enabled } : current));
+      toaster.toast({ title: t("settings.lowPowerDownloadsError"), body: String(error) });
     }
+    setLowPowerDownloads(getLowPowerDownloadSettings());
   };
   const setSwipeGesturesEnabled = async (enabled: boolean) => {
     if (swipeGesturesSaving) return;
@@ -153,6 +144,18 @@ export function Settings({ config, setConfig }: {
       setSwipeGesturesSaving(false);
     }
   };
+  const setGyroEnabled = async (enabled: boolean) => {
+    if (gyroSaving) return;
+    setGyroSaving(true);
+    try {
+      const applied = await applyGyroEnabled(enabled);
+      setConfig((current) => (current ? { ...current, gyro: { ...current.gyro, enabled: applied } } : current));
+    } catch (error) {
+      toaster.toast({ title: t("settings.gyroError"), body: String(error) });
+    } finally {
+      setGyroSaving(false);
+    }
+  };
   const setBottomScreenEnabled = async (enabled: boolean) => {
     if (enabled === !!config.bottomScreenEnabled) {
       return;
@@ -163,7 +166,7 @@ export function Settings({ config, setConfig }: {
       setConfig((current) => (current ? { ...current, bottomScreenEnabled: applied } : current));
     } catch (error) {
       setConfig((current) => (current ? { ...current, bottomScreenEnabled: !enabled } : current));
-      toaster.toast({ title: t("settings.bottomScreenError"), body: friendlyError(error) });
+      toaster.toast({ title: t("settings.bottomScreenError"), body: String(error) });
     }
   };
   const setDesktopMode = async (value: string) => {
@@ -174,7 +177,7 @@ export function Settings({ config, setConfig }: {
       setConfig((current: Config | null) => (current ? { ...current, desktopMode: applied } : current));
     } catch (error) {
       setConfig((current: Config | null) => (current ? { ...current, desktopMode: previous } : current));
-      toaster.toast({ title: t("settings.desktopModeError"), body: friendlyError(error) });
+      toaster.toast({ title: t("settings.desktopModeError"), body: String(error) });
     }
   }
   const setSleepMode = async (value: string) => {
@@ -185,7 +188,7 @@ export function Settings({ config, setConfig }: {
       setConfig((current) => (current ? { ...current, sleepMode: applied } : current));
     } catch (error) {
       setConfig((current) => (current ? { ...current, sleepMode: previous } : current));
-      toaster.toast({ title: t("settings.sleepModeError"), body: friendlyError(error) });
+      toaster.toast({ title: t("settings.sleepModeError"), body: String(error) });
     }
   };
   const setSleepLogs = async (enabled: boolean) => {
@@ -196,22 +199,9 @@ export function Settings({ config, setConfig }: {
       setSleepLogsEnabled(await applySleepLogsEnabled(enabled));
     } catch (error) {
       setSleepLogsEnabled(previous);
-      toaster.toast({ title: t("settings.sleepLogsError"), body: friendlyError(error) });
+      toaster.toast({ title: t("settings.sleepLogsError"), body: String(error) });
     } finally {
       setSleepLogsSaving(false);
-    }
-  };
-  const setKeepRollback = async (enabled: boolean) => {
-    const previous = keepRollback ?? false;
-    setKeepRollbackState(enabled);
-    setKeepRollbackSaving(true);
-    try {
-      setKeepRollbackState((await applyKeepRollback(enabled)).enabled);
-    } catch (error) {
-      setKeepRollbackState(previous);
-      toaster.toast({ title: t("settings.keepRollbackError"), body: friendlyError(error) });
-    } finally {
-      setKeepRollbackSaving(false);
     }
   };
   return (
@@ -224,8 +214,17 @@ export function Settings({ config, setConfig }: {
           onChange={setControllerType}
         />
         <ButtonRow layout="below" onClick={openCalibration}>{t("calibration.launch")}</ButtonRow>
+        {config.gyro?.supported && (
+          <ToggleRow
+            label={t("settings.enableGyro")}
+            value={config.gyro.enabled}
+            disabled={gyroSaving}
+            onChange={setGyroEnabled}
+          />
+        )}
       </PanelSection>
       <PanelSection title={t("settings.system")}>
+        <ToggleRow label={t("settings.enableSsh")} value={!!config.sshEnabled} onChange={setSshEnabled} />
         <ToggleRow
           label={t("settings.swipeGestures")}
           description={t("settings.swipeGesturesDescription")}
@@ -239,14 +238,21 @@ export function Settings({ config, setConfig }: {
           options={(config.sleepModes || []).map((option) => ({ ...option, label: translateLabel(option.label) }))}
           onChange={setSleepMode}
         />
-        <ToggleRow label={t("settings.enableSsh")} value={!!config.sshEnabled} onChange={setSshEnabled} />
+        <PanelCalibration />
         <ToggleRow
-          label={t("settings.keepRollback")}
-          description={t("settings.keepRollbackDescription")}
-          value={keepRollback ?? false}
-          disabled={keepRollback === null || keepRollbackSaving}
-          onChange={(enabled) => { void setKeepRollback(enabled); }}
+          label={t("settings.lowPowerDownloads")}
+          description={t("settings.lowPowerDownloadsDescription")}
+          value={lowPowerDownloads.enabled}
+          onChange={(enabled) => applyLowPowerDownloads(() => setLowPowerDownloadsEnabled(enabled))}
         />
+        {lowPowerDownloads.enabled && (
+          <ToggleRow
+            label={t("settings.lowPowerDownloadsBattery")}
+            description={t("settings.lowPowerDownloadsBatteryDescription")}
+            value={lowPowerDownloads.onBattery}
+            onChange={(enabled) => applyLowPowerDownloads(() => setLowPowerDownloadsOnBattery(enabled))}
+          />
+        )}
         <Field label={t("settings.osVersion")} description={config.osVersion || t("common.unknown")} />
         <Field label={t("settings.ablVersion")} description={config.ablVersion || t("common.unknown")} />
       </PanelSection>
@@ -295,12 +301,6 @@ export function Settings({ config, setConfig }: {
           description={config.mtpEnabled ? t("settings.enabledUntilShutdown") : undefined}
           value={!!config.mtpEnabled}
           onChange={setMtpEnabled}
-        />
-        <ToggleRow
-          label={t("settings.automaticAblUpdates")}
-          description={t("settings.updatesDuringShutdown")}
-          value={!!config.ablAutoEnabled}
-          onChange={setAblAutoEnabled}
         />
       </PanelSection>
       <PanelSection title={t("settings.diagnostics")}>

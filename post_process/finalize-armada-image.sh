@@ -1,15 +1,13 @@
 #!/bin/bash
-# Post-BIB: stage ROCKNIX ABL files and compress.
+# Post-BIB: stage the OpenABL flashing kit and EFI boot files, and compress.
 
 set -euxo pipefail
 
 RAW_IMAGE="${1:-output/raw/disk.raw}"
-source "$(dirname "${BASH_SOURCE[0]}")/../abl/release.env"
+ARMADA_IMAGE="${2:?usage: finalize-armada-image.sh <disk.raw> <container image>}"
 OUT="${OUT:-output/armada-$(TZ='America/New_York' date +%Y%m%d).img.gz}"
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-ABL_RELEASES="${REPO_ROOT}/abl/releases.tsv"
-ABL_CATALOG_TOOL="${REPO_ROOT}/system_files/usr/lib/armada/abl-version"
-ABL_SRC="${REPO_ROOT}/abl"
+ABL_KIT="${REPO_ROOT}/packages/openabl-updater/sdcard"
 
 if [[ ! -f "${RAW_IMAGE}" ]]; then
     echo "ERROR: raw image not found at ${RAW_IMAGE}"
@@ -18,7 +16,18 @@ if [[ ! -f "${RAW_IMAGE}" ]]; then
 fi
 
 WORK=$(mktemp -d)
-trap "sudo umount '${WORK}/mnt' 2>/dev/null || true; sudo losetup -d \"\$(cat ${WORK}/loop 2>/dev/null)\" 2>/dev/null || true; rm -rf '${WORK}'" EXIT
+trap "sudo umount '${WORK}/mnt' '${WORK}/boot' '${WORK}/root' 2>/dev/null || true; sudo losetup -d \"\$(cat ${WORK}/loop 2>/dev/null)\" 2>/dev/null || true; rm -rf '${WORK}'" EXIT
+
+ABL_SRC="${WORK}/abl"
+container=$(sudo podman create "${ARMADA_IMAGE}")
+sudo podman cp "${container}:/usr/lib/openabl-updater" "${ABL_SRC}" || {
+    sudo podman rm "${container}" >/dev/null; exit 1;
+}
+sudo podman rm "${container}" >/dev/null
+sudo chown -R "$(id -u):$(id -g)" "${ABL_SRC}"
+manifest_get() { sed -n "s/^$1=//p" "${ABL_SRC}/manifest" | head -1; }
+ARMADA_ABL_NAME=$(manifest_get ARMADA_ABL_NAME)
+ARMADA_ABL_VERSION=$(manifest_get ARMADA_ABL_VERSION)
 
 LOOP=$(sudo losetup -fP --show "${RAW_IMAGE}")
 echo "${LOOP}" > "${WORK}/loop"
@@ -34,42 +43,44 @@ fi
 mkdir -p "${WORK}/mnt"
 sudo mount "${ESP}" "${WORK}/mnt"
 
-sudo mkdir -p "${WORK}/mnt/rocknix_abl"
+mkdir -p "${WORK}/boot" "${WORK}/root"
+sudo mount -o ro "${LOOP}p2" "${WORK}/boot"
+sudo mount -o ro,subvol=root "${LOOP}p3" "${WORK}/root"
+deploy=$(sudo find "${WORK}/root/ostree/deploy/default/deploy" -mindepth 1 -maxdepth 1 -type d | head -1)
+usr=${deploy}/usr
+sudo test -s "${WORK}/mnt/KERNEL"
+sudo env ESP="${WORK}/mnt" BOOTROOT="${WORK}/boot" SYSROOT="${WORK}/root" \
+    ARGS_FILE="${usr}/lib/armada/bootimg-args" \
+    "${usr}/libexec/armada/armada-efi-update"
+sudo test -s "${WORK}/mnt/EFI/BOOT/BOOTAA64.EFI"
+
+sudo mkdir -p "${WORK}/mnt/openabl"
 # One image serves all devices, so stage a self-contained folder per SoC.
 # vfat has no Unix ownership, so `cp -a` would error on chown under set -e.
-sudo cp "${REPO_ROOT}/abl/README" "${WORK}/mnt/rocknix_abl/README"
-for soc in SM8250 SM8550 SM8650 SM8750; do
-    approved=$(ARMADA_ABL_RELEASES="${ABL_RELEASES}" \
-        python3 "${ABL_CATALOG_TOOL}" --lookup "${ARMADA_ABL_VERSION}" "${soc}") || {
-        echo "ERROR: missing approved ${ARMADA_ABL_VERSION} ${soc} payload" >&2
+sudo cp "${ABL_KIT}/README" "${WORK}/mnt/openabl/README"
+for soc in SM7750 SM8250 SM8550 SM8650 SM8750; do
+    payload_soc=${soc}
+    [[ "${soc}" != SM7750 ]] || payload_soc=SM8750
+    approved_hash=$(manifest_get "ARMADA_ABL_SHA256_${payload_soc}")
+    payload="${ABL_SRC}/abl_signed-${payload_soc}.elf"
+    [[ -n "${approved_hash}" && $(sha256sum "${payload}" | cut -d ' ' -f 1) == "${approved_hash}" ]] || {
+        echo "ERROR: ${soc} payload does not match the ${ARMADA_ABL_NAME} ${ARMADA_ABL_VERSION} manifest" >&2
         exit 1
     }
-    read -r approved_size approved_hash <<<"${approved}"
-    payload="${ABL_SRC}/abl_signed-${soc}.elf"
-    [[ $(stat -c %s "${payload}") == "${approved_size}" ]] || {
-        echo "ERROR: ${soc} payload size does not match the approved release" >&2
-        exit 1
-    }
-    [[ $(sha256sum "${payload}" | cut -d ' ' -f 1) == "${approved_hash}" ]] || {
-        echo "ERROR: ${soc} payload hash does not match the approved release" >&2
-        exit 1
-    }
-    d="${WORK}/mnt/rocknix_abl/${soc}"
+    d="${WORK}/mnt/openabl/${soc}"
     sudo mkdir -p "$d"
-    sudo cp "${payload}" "$d/"
+    sudo cp "${payload}" "$d/abl_signed-${soc}.elf"
     printf '%s  abl_signed-%s.elf\n' "${approved_hash}" "${soc}" \
         | sudo tee "$d/abl_signed-${soc}.elf.sha256" >/dev/null
     for s in flash_abl backup_abl restore_backup_abl; do
-        sed "s/%DEVICE%/${soc}/g" "${REPO_ROOT}/abl/${s}.sh.template" \
+        sed "s/%DEVICE%/${soc}/g" "${ABL_KIT}/${s}.sh.template" \
             | sudo tee "$d/${s}.sh" >/dev/null
     done
     sudo chmod 0755 "$d"/*.sh
 done
 
-# Disable GRUB so ABL falls through to /KERNEL.
-if [ -d "${WORK}/mnt/EFI" ]; then sudo mv "${WORK}/mnt/EFI" "${WORK}/mnt/EFI.disabled"; fi
 sudo sync
-sudo umount "${WORK}/mnt"
+sudo umount "${WORK}/mnt" "${WORK}/boot" "${WORK}/root"
 
 # Android shows this label when copying the ABL
 sudo fatlabel "${ESP}" ARMADA

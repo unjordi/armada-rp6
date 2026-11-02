@@ -1,7 +1,6 @@
 import { ButtonItem, DropdownItem, PanelSectionRow, SliderField, ToggleField } from "@decky/ui";
 import type { ReactNode } from "react";
 import type { ButtonItemProps } from "@decky/ui";
-import { t } from "../i18n";
 import type { DropdownChoice } from "../types";
 
 type Option = string | DropdownChoice;
@@ -22,19 +21,7 @@ export function SelectEdit({ label, value, options, onChange, disabled, placehol
   disabled?: boolean;
   placeholder?: string;
 }) {
-  // Per-option disabled: shown greyed (via the option's disabled flag where the
-  // Dropdown honours it) and always decorated with a cue, so an option that is
-  // present-but-not-selectable (e.g. deep sleep on an unvalidated model) never
-  // looks pickable. Selecting one is a no-op regardless of Dropdown support.
-  const disabledData = new Set<string>();
-  const rgOptions = options.map((option) => {
-    const choice = typeof option === "string" ? { data: option, label: option } : option;
-    if (choice.disabled) {
-      disabledData.add(choice.data);
-      return { ...choice, label: `${choice.label} (${t("common.unavailable")})` };
-    }
-    return choice;
-  });
+  const rgOptions = options.map((option) => (typeof option === "string" ? { data: option, label: option } : option));
   return <ControlRow>
     <DropdownItem
       label={label}
@@ -43,9 +30,7 @@ export function SelectEdit({ label, value, options, onChange, disabled, placehol
       strDefaultLabel={placeholder}
       selectedOption={value}
       rgOptions={rgOptions}
-      onChange={(option) => {
-        if (!disabledData.has(option.data)) onChange(option.data);
-      }}
+      onChange={(option) => onChange(option.data)}
     />
   </ControlRow>;
 }
@@ -62,16 +47,15 @@ export function ToggleRow({ label, value, onChange, disabled, description }: {
   </ControlRow>;
 }
 
-export function SliderEdit({ label, value, min, max, step, onChange, valueSuffix, disabled, showValue = true, wrapperClassName = "armada-slider-field" }: {
+export function SliderEdit({ label, description, value, min, max, step, onChange, format, disabled, showValue = true, wrapperClassName }: {
   label: ReactNode;
+  description?: ReactNode;
   value: any;
   min: number;
   max: number;
   step: number;
-  // Always the slider's number: the backend validates ints, so never transform it here.
-  onChange: (value: number) => void;
-  // Display only (e.g. "%"); does not change the value passed to onChange.
-  valueSuffix?: string;
+  onChange: (value: any) => void;
+  format?: (value: number) => any;
   disabled?: boolean;
   showValue?: boolean;
   wrapperClassName?: string;
@@ -81,15 +65,15 @@ export function SliderEdit({ label, value, min, max, step, onChange, valueSuffix
     <SliderField
       className={wrapperClassName}
       label={label}
+      description={description}
       childrenContainerWidth="max"
       value={Number.isFinite(numeric) ? numeric : min}
       min={min}
       max={max}
       step={step}
       showValue={showValue}
-      valueSuffix={valueSuffix}
       disabled={disabled}
-      onChange={(next) => onChange(next)}
+      onChange={(next) => onChange(format ? format(next) : next)}
     />
   </ControlRow>;
 }

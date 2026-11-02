@@ -69,7 +69,6 @@ the guides there rather than instructions copied from older releases or posts.
 | Learn the interface | [Using Armada](https://armadaos.dev/using-armada/) |
 | Update an installation | [Updating](https://armadaos.dev/getting-started/updating/) |
 | Find help | [FAQ](https://armadaos.dev/troubleshooting/frequently-asked-questions/) · [Known issues](https://armadaos.dev/troubleshooting/known-issues/) |
-| See what the RP6 fork changes | [RP6 fork index](docs/rp6-fork.md) |
 | Report a bug | [Github Issues](https://github.com/armada-os/armada/issues)
 
 ## Development
@@ -90,6 +89,11 @@ Each package builds as a stage in `packages/Containerfile` and is published
 under a tag derived from its own sources, so an unchanged package is never
 rebuilt. `just build` uses a locally built package when you have one and the
 published image otherwise, so you only build what you are changing.
+
+Disk images carry a deprecated `/KERNEL` for older ABLs and an EFI boot path:
+systemd-boot and OpenABL reads the BLS entries that `armada-efi-update` mirrors
+onto the ESP, dtbloader supplies the devicetree on EFI platforms booting with
+systemd-boot.
 
 Issues and pull requests are welcome. For installation or device support, check
 the [troubleshooting documentation](https://armadaos.dev/troubleshooting/frequently-asked-questions/)

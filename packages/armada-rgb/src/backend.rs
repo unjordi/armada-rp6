@@ -50,45 +50,6 @@ impl LightingBackend {
             Self::Unsupported(_) => None,
         }
     }
-
-    /// Number of LED targets the active backend drives (0 if unsupported).
-    pub fn target_count(&self) -> usize {
-        match self {
-            // The MCU takes one color for all of its LEDs.
-            Self::Serial(_) => 1,
-            Self::Channels(backend) => backend.targets.len(),
-            Self::Multicolor(backend) => backend.targets.len(),
-            Self::Unsupported(_) => 0,
-        }
-    }
-
-    /// Paint an explicit color per target at a shared brightness percentage.
-    /// Used by the animation loop: multicolor devices honour per-target colors
-    /// (for spatial effects like rainbow); other backends fall back to a
-    /// uniform color (the first entry) through their validated `apply` path.
-    pub fn render(&self, colors: &[[u8; 3]], brightness: u8) -> Result<()> {
-        match self {
-            Self::Multicolor(backend) => backend.render(colors, brightness),
-            Self::Channels(backend) => {
-                let color: [u8; 3] = colors.first().copied().unwrap_or([0, 0, 0]);
-                backend.apply(&uniform_config(color, brightness))
-            }
-            Self::Serial(backend) => {
-                let color: [u8; 3] = colors.first().copied().unwrap_or([0, 0, 0]);
-                backend.apply(&uniform_config(color, brightness))
-            }
-            Self::Unsupported(reason) => bail!("{reason}"),
-        }
-    }
-}
-
-fn uniform_config(rgb: [u8; 3], brightness: u8) -> LightingConfig {
-    LightingConfig {
-        enabled: true,
-        brightness,
-        color: format!("{:02X}{:02X}{:02X}", rgb[0], rgb[1], rgb[2]),
-        ..LightingConfig::default()
-    }
 }
 
 /// MCU packet family spoken over the serial device.
@@ -250,7 +211,6 @@ impl ChannelBackend {
 
         for (name, channel) in channels {
             let path: PathBuf = self.root.join(&name);
-            reclaim_led(&path);
             let brightness_path: PathBuf = path.join("brightness");
             let brightness: File = OpenOptions::new()
                 .write(true)
@@ -319,7 +279,6 @@ impl MulticolorBackend {
 
         for name in &self.targets {
             let path: PathBuf = self.root.join(name);
-            reclaim_led(&path);
             let brightness_path: PathBuf = path.join("brightness");
             let blank: File = OpenOptions::new()
                 .write(true)
@@ -362,41 +321,6 @@ impl MulticolorBackend {
             });
         }
         Ok(targets)
-    }
-
-    /// Paint one already-computed color per target at `brightness` percent,
-    /// reusing the profile correction, `multi_index` order, gamma curve and
-    /// brightness scaling of the `apply` path. Missing colors default to off.
-    fn render(&self, colors: &[[u8; 3]], brightness: u8) -> Result<()> {
-        validate_names(&self.targets)?;
-        for (index, name) in self.targets.iter().enumerate() {
-            let rgb: [u8; 3] = colors.get(index).copied().unwrap_or([0, 0, 0]);
-            let rgb: [u8; 3] = match &self.correction {
-                Some(correction) => correction.apply(rgb),
-                None => rgb,
-            };
-            let path: PathBuf = self.root.join(name);
-            reclaim_led(&path);
-            let order: Vec<String> = read_order(&path.join("multi_index"))?;
-            let maximum: u32 = read_maximum(&path.join("max_brightness"))?;
-            let values: Vec<String> = order
-                .iter()
-                .map(|channel| channel_value(channel, rgb, maximum).to_string())
-                .collect();
-            let mut intensity: File = OpenOptions::new()
-                .write(true)
-                .open(path.join("multi_intensity"))
-                .with_context(|| format!("open {name} multi_intensity"))?;
-            write_attr(&mut intensity, &values.join(" "))
-                .with_context(|| format!("write {name} color"))?;
-            let mut brightness_file: File = OpenOptions::new()
-                .write(true)
-                .open(path.join("brightness"))
-                .with_context(|| format!("open {name} brightness"))?;
-            write_attr(&mut brightness_file, &scale(brightness, maximum).to_string())
-                .with_context(|| format!("write {name} brightness"))?;
-        }
-        Ok(())
     }
 }
 
@@ -445,13 +369,7 @@ fn write_channels(targets: &mut [PreparedChannel]) -> Result<()> {
 
 fn write_colors(targets: &mut [PreparedTarget]) -> Result<()> {
     for target in targets {
-        // Invariant: `prepare` only calls these helpers when `config.enabled`,
-        // in which case it always sets `color`. A missing value would be a
-        // programming error, not a runtime I/O failure — surface it as a clear
-        // error instead of an opaque panic.
-        let Some((file, value)) = target.color.as_mut() else {
-            bail!("internal: target '{}' has no prepared color (expected when enabled)", target.name);
-        };
+        let (file, value) = target.color.as_mut().expect("prepared color");
         write_attr(file, value).with_context(|| format!("write {} color", target.name))?;
     }
     Ok(())
@@ -459,9 +377,7 @@ fn write_colors(targets: &mut [PreparedTarget]) -> Result<()> {
 
 fn write_brightness(targets: &mut [PreparedTarget]) -> Result<()> {
     for target in targets {
-        let Some((file, value)) = target.brightness.as_mut() else {
-            bail!("internal: target '{}' has no prepared brightness (expected when enabled)", target.name);
-        };
+        let (file, value) = target.brightness.as_mut().expect("prepared brightness");
         write_attr(file, value).with_context(|| format!("write {} brightness", target.name))?;
     }
     Ok(())
@@ -471,33 +387,6 @@ fn write_attr(file: &mut File, value: &str) -> std::io::Result<()> {
     let output: String = format!("{value}\n");
     file.write_all(output.as_bytes())?;
     file.flush()
-}
-
-/// Reclaim an LED from a kernel trigger before the daemon drives it.
-///
-/// The suspend charging hand-off (armada#26) arms a kernel
-/// `<psy>-charging-orange-full-green` trigger on these nodes while the device
-/// sleeps -- so the charge state keeps painting through deep sleep with no CPU
-/// -- and the resume hook disarms it (writes `none`) before the daemon runs.
-/// A LED whose trigger is still armed is treated as "not ours": the only time
-/// the daemon should meet one is leftover from a crash that skipped the resume
-/// hook, so we disarm it here before writing, otherwise the kernel trigger
-/// would keep overriding our brightness. Best-effort: nodes with no `trigger`
-/// attribute, or one already `none`, are left untouched, and any error is
-/// ignored (lighting is cosmetic).
-fn reclaim_led(led_dir: &Path) {
-    let trigger_path: PathBuf = led_dir.join("trigger");
-    let Ok(contents) = fs::read_to_string(&trigger_path) else {
-        return;
-    };
-    // The active trigger is the token wrapped in brackets, e.g.
-    // "none rc-feedback [battery-charging-orange-full-green] timer".
-    let active: Option<&str> = contents
-        .split_whitespace()
-        .find_map(|token| token.strip_prefix('[').and_then(|t| t.strip_suffix(']')));
-    if matches!(active, Some(name) if name != "none") {
-        let _ = fs::write(&trigger_path, b"none\n");
-    }
 }
 
 fn read_order(path: &Path) -> Result<Vec<String>> {
@@ -588,27 +477,6 @@ fn scale(percent: u8, maximum: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-
-    fn temp_led(trigger: Option<&str>) -> PathBuf {
-        let nonce: u128 = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir: PathBuf = std::env::temp_dir().join(format!(
-            "rgb-reclaim-{}-{nonce}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        if let Some(contents) = trigger {
-            fs::write(dir.join("trigger"), contents).unwrap();
-        }
-        dir
-    }
 
     #[test]
     fn scales_channels_and_brightness() {
@@ -616,33 +484,6 @@ mod tests {
         assert_eq!(gamma(128, 100), 22);
         assert_eq!(gamma(255, 255), 255);
         assert_eq!(scale(25, 255), 64);
-    }
-
-    #[test]
-    fn reclaims_an_armed_trigger() {
-        let dir: PathBuf = temp_led(Some(
-            "none rc-feedback [battery-charging-orange-full-green] timer\n",
-        ));
-        reclaim_led(&dir);
-        assert_eq!(fs::read_to_string(dir.join("trigger")).unwrap(), "none\n");
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn leaves_a_disarmed_trigger_untouched() {
-        let contents: &str = "[none] rc-feedback battery-charging-orange-full-green timer\n";
-        let dir: PathBuf = temp_led(Some(contents));
-        reclaim_led(&dir);
-        assert_eq!(fs::read_to_string(dir.join("trigger")).unwrap(), contents);
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn ignores_a_node_without_a_trigger_attribute() {
-        let dir: PathBuf = temp_led(None);
-        reclaim_led(&dir); // must not panic or create the file
-        assert!(!dir.join("trigger").exists());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
