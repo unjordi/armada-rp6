@@ -93,6 +93,7 @@
 0534-serial-qcom-geni-add-force-suspend-resume-to-system-sleep-callbacks.patch
 1007-input-rsinput-drop-the-mcu-supply-across-system-sleep.patch
 1004-input-haptics-stop-zero-amplitude-immediately.patch
+1009-input-haptics-stop-on-playback-zero.patch
 1300-input-rsinput-axis-deadzone.patch
 1301-input-rsinput-decouple-trigger-reference-from-calibration.patch
 0515-input-rsinput-reassemble-uart-frames-instead-of-dropping-them.patch
