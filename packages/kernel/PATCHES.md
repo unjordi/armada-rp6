@@ -278,6 +278,10 @@ no equivalent submission was found, or a permanent URL to the upstream submissio
   source: armada
   upstream: local
   notes: The imported periodic-sine compatibility patch changed zero-amplitude updates to gain 1, then stopped the motor five seconds later. The configured brake pattern made that stop a distinct delayed tap. Zero-amplitude updates now erase immediately, a following playback request cannot restart stale motor state when no effect is loaded, and in-place gain updates balance their transient runtime-PM reference.
+- `patches/1009-input-haptics-stop-on-playback-zero.patch`
+  source: armada
+  upstream: local
+  notes: haptics_playback() ignored stop requests, so a client that opens the haptics input device directly (SDL_HapticRumbleStop() in sm64coopdx on the RP6) felt each short rumble for the effect's full replay.length. A stop while playing now runs the existing stop worker immediately; the worker is used because stopping sleeps and playback can run under the input event_lock. The RSInput bridge path already stopped correctly through erase.
 - `patches/1005-input-rsinput-quiesce-the-mcu-across-system-sleep.patch`
   source: https://github.com/shuuri-labs/pocknix-os/blob/d2544c1481b55e9dec18ff74a8751d4a67b351f8/kernel/sm8550/patches/20-sm8550/1004-input-rsinput-suspend-resume-gamepad-mcu.patch
   upstream: local

@@ -1,0 +1,28 @@
+From: Armada <noreply@armada.local>
+Subject: [PATCH] input: qcom-hv-haptics: stop playback when an effect is stopped
+
+haptics_playback() only handled a start request. A stop request
+(EV_FF with value 0) returned without touching the hardware, so an
+effect kept playing until its replay.length timer fired. Clients that
+open the haptics input device directly and stop rumble with
+EVIOCSFF + EV_FF 0, such as SDL_HapticRumbleStop(), felt every short
+rumble for the full requested length (5 s in sm64coopdx).
+
+Run the existing stop worker immediately on a stop request while the
+chip is playing. Stopping sleeps on SPMI and in the brake wait, and
+playback can be called under the input device event_lock, so the stop
+is deferred to the worker instead of being done inline.
+
+--- a/drivers/input/misc/qcom-hv-haptics.c	2026-11-05 10:39:31.532775325 -0600
++++ b/drivers/input/misc/qcom-hv-haptics.c	2026-11-05 10:39:31.540914311 -0600
+@@ -3383,6 +3383,10 @@
+ 		return haptics_enable_play(chip, true);
+ 	}
+ 
++	/* Stopping sleeps on SPMI; playback can run under the input event_lock. */
++	if (!val && chip->chip_is_playing)
++		mod_delayed_work(system_wq, &chip->stop_work, 0);
++
+ 	return 0;
+ }
+ 
